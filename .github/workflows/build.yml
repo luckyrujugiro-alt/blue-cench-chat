@@ -67,3 +67,31 @@ jobs:
         run: |
           gh release delete v1.0.0 --yes --cleanup-tag 2>$null
           gh release create v1.0.0 dist\BlueCenchChat-Setup-1.0.0.exe dist\BlueCenchChat-portable-1.0.0.zip --title "Blue Cench Chat 1.0.0" --notes "Windows installer and portable app. Run BlueCenchChat-Setup-1.0.0.exe to install."
+
+  android:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+      - name: Build Android app
+        run: gradle -p android assembleRelease --no-daemon --stacktrace
+      - name: Attach APK to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk BlueCenchChat-1.0.0.apk
+          gh release upload v1.0.0 BlueCenchChat-1.0.0.apk --clobber
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlueCenchChat-android
+          path: BlueCenchChat-1.0.0.apk

@@ -155,3 +155,12 @@ async def test_concurrent_start_is_safe(pair):
         assert (await c.get(f"https://127.0.0.1:{a.web.port}/api/session")).status_code == 200
     await asyncio.gather(a.web.stop(), a.web.stop())
     assert not a.web.running
+
+
+async def test_beacon_announces_phone_access(pair):
+    a, b = pair
+    await a.web.start(port=0)
+    payload = a.lan._beacon_payload
+    assert payload["web"] == a.web.port and len(payload["fp"].split(":")) == 16
+    await a.web.stop()
+    assert a.lan._beacon_payload["web"] == 0

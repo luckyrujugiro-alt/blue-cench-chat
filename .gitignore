@@ -10,3 +10,7 @@ dist/
 pip-log.txt
 *.log
 logs/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties

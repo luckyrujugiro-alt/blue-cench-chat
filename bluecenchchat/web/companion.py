@@ -226,6 +226,7 @@ class WebCompanion:
         self.running = True
         self.error = ""
         log.info("Wi-Fi companion listening on %s", self.port)
+        self.node.apply_visibility()
         self.node.bus.emit("web")
 
     async def _fallback(self, host: str, tls: bool) -> None:
@@ -249,4 +250,5 @@ class WebCompanion:
         self.server = None
         self.running = False
         self.port = 0
+        self.node.apply_visibility()
         self.node.bus.emit("web")

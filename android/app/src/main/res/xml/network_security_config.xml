@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only HTTPS. The PC's self-signed certificate is accepted in code solely when its
+     SHA-256 fingerprint matches the one the PC announces (or the user approved). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

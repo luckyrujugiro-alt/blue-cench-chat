@@ -42,6 +42,8 @@ The layout adapts to the screen:
 * **Phones:** bottom tabs and full-screen chats.
 * **Tablets and desktops:** a navigation rail with list and chat side by side.
 
+**Android app.** `android/` holds a small native app (Kotlin). It listens for the PC's presence beacons on the Wi-Fi, so you just open it and tap your PC. It also pins the PC's HTTPS certificate fingerprint, so there's no browser warning, and it saves received files to *Downloads/Blue Cench Chat*. GitHub Actions builds it as `BlueCenchChat-1.0.0.apk`, attached to the release. Installing it needs Android 10+ and *Install unknown apps* allowed for your browser or file manager. **iPhone/iPad** apps can only be built on a Mac with a paid Apple developer account, so on iOS use the QR code once and then *Add to Home Screen*.
+
 **Why the phone doesn't use its own Bluetooth.** Phone browsers can't publish Bluetooth services or open RFCOMM links, and iPhone/iPad browsers have no Bluetooth at all. The PC therefore keeps the Bluetooth and local-network links and the encryption keys. Paired phones act as secure remote screens for the PC's Blue Cench Chat account. A paired device can be removed from the PC at any time and is signed out immediately.
 
 ## 3. What Bluetooth on Windows can and cannot do

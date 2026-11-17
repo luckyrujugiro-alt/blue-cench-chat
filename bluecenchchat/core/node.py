@@ -227,6 +227,9 @@ class BlueCenchChatNode:
             self.lan.set_beacon({
                 "uid": self.identity.user_id, "hint": hint.hex(), "name": acc.display_name, "user": acc.username,
                 "bt": self.adapter.address if self.adapter.available else 0, "rfcomm": self.rfcomm.running,
+                # lets the Android app find this PC's phone access and pin its certificate
+                "web": self.web.port if self.web.running else 0,
+                "fp": self.web.fingerprint if self.web.running else "",
             })
         else:
             self.lan.set_beacon(None)

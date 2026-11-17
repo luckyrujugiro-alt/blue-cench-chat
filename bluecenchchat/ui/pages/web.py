@@ -81,6 +81,10 @@ class WebPage(Page):
             row.addWidget(Pill(str(i), "primary"), 0, Qt.AlignmentFlag.AlignTop)
             row.addWidget(label(text, "muted", wrap=True), 1)
             how.add(row)
+        how.add(label("Android: install the Blue Cench Chat app (BlueCenchChat-1.0.0.apk from the GitHub release). "
+                      "It finds this PC on the Wi-Fi by itself and checks its certificate automatically - no address, "
+                      "QR code or warning page. iPhone/iPad: use the QR code once, then Add to Home Screen.",
+                      "muted", wrap=True))
         how.add(label("Bluetooth always stays on this PC: phone browsers - and all iPhone/iPad browsers - cannot use "
                       "Bluetooth for apps like this. The phone is a secure remote screen for your PC's Blue Cench Chat.",
                       "faint", wrap=True))
