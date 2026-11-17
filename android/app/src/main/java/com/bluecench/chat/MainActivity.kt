@@ -43,7 +43,7 @@ class MainActivity : AppCompatActivity() {
 
     private val bg = Color.parseColor("#070B14")
     private val card = Color.parseColor("#0E1526")
-    private val text = Color.parseColor("#E7EEF9")
+    private val textColor = Color.parseColor("#E7EEF9")
     private val muted = Color.parseColor("#8C9AB6")
     private val blue = Color.parseColor("#2F7BFF")
 
@@ -62,7 +62,7 @@ class MainActivity : AppCompatActivity() {
         })
         root.addView(TextView(this).apply {
             setText(R.string.app_name)
-            setTextColor(text)
+            setTextColor(textColor)
             textSize = 26f
             typeface = Typeface.DEFAULT_BOLD
             setPadding(0, dp(12), 0, dp(4))
@@ -167,7 +167,7 @@ class MainActivity : AppCompatActivity() {
                 setOnClickListener { open(pc.name, pc.uid, pc.ip, pc.port, pc.fp) }
             }
             row.addView(TextView(this).apply {
-                text = pc.name; setTextColor(text); textSize = 17f; typeface = Typeface.DEFAULT_BOLD
+                text = pc.name; setTextColor(textColor); textSize = 17f; typeface = Typeface.DEFAULT_BOLD
             })
             row.addView(TextView(this).apply {
                 text = "${pc.ip}  ·  ${pc.uid}"; setTextColor(muted); textSize = 13f
