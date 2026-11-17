@@ -1,0 +1,13 @@
+{
+  "name": "Blue Cench Chat",
+  "short_name": "Blue Cench Chat",
+  "description": "Chat and share files with people nearby - over Bluetooth and Wi-Fi, no internet needed.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070B14",
+  "theme_color": "#0A1020",
+  "icons": [
+    {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"}
+  ]
+}
