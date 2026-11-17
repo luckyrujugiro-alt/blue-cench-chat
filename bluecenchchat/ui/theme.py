@@ -31,27 +31,31 @@ class Palette:
     on_primary: str = "#FFFFFF"
 
 
-DARK = Palette(
-    name="dark",
-    bg="#070B14", sidebar="#0A1020", surface="#0E1526", surface2="#131C30", surface3="#1A2540",
-    border="#1C2742", border_strong="#2A3A5E",
-    text="#E7EEF9", muted="#8C9AB6", faint="#5E6B86",
-    primary="#2F7BFF", primary_hover="#4A8DFF", primary_soft="#13264D",
-    cyan="#22D3EE", success="#22C55E", warning="#F5A524", danger="#F04F5F",
-    bubble_out="#1D4ED8", bubble_in="#16203A",
-)
-
+# Instagram-inspired: crisp white by default, true-black dark mode.
 LIGHT = Palette(
     name="light",
-    bg="#F3F6FB", sidebar="#FFFFFF", surface="#FFFFFF", surface2="#F1F4FA", surface3="#E7ECF5",
-    border="#DFE5F0", border_strong="#C9D3E4",
-    text="#0E1726", muted="#56637A", faint="#8D98AD",
-    primary="#2563EB", primary_hover="#1D4ED8", primary_soft="#E3ECFF",
-    cyan="#0891B2", success="#16A34A", warning="#D97706", danger="#DC2626",
-    bubble_out="#2563EB", bubble_in="#EEF2F8",
+    bg="#FFFFFF", sidebar="#FFFFFF", surface="#FFFFFF", surface2="#FAFAFA", surface3="#EFEFEF",
+    border="#DBDBDB", border_strong="#C7C7C7",
+    text="#0C1014", muted="#737373", faint="#A8A8A8",
+    primary="#0095F6", primary_hover="#1877F2", primary_soft="#E0F1FF",
+    cyan="#0095F6", success="#16A34A", warning="#E7790B", danger="#ED4956",
+    bubble_out="#3797F0", bubble_in="#EFEFEF",
 )
 
-_current: Palette = DARK
+DARK = Palette(
+    name="dark",
+    bg="#000000", sidebar="#000000", surface="#121212", surface2="#1A1A1A", surface3="#262626",
+    border="#262626", border_strong="#363636",
+    text="#F5F5F5", muted="#A8A8A8", faint="#737373",
+    primary="#0095F6", primary_hover="#1877F2", primary_soft="#0B2A44",
+    cyan="#4CB5F9", success="#22C55E", warning="#F5A524", danger="#ED4956",
+    bubble_out="#3797F0", bubble_in="#262626",
+)
+
+VERIFIED_BLUE = "#0095F6"
+STORY_GRADIENT = "qlineargradient(x1:0, y1:1, x2:1, y2:0, stop:0 #FEDA75, stop:0.3 #FA7E1E, stop:0.55 #D62976, stop:0.8 #962FBF, stop:1 #4F5BD5)"
+
+_current: Palette = LIGHT
 REDUCE_MOTION = False
 _scale = 1.0
 
@@ -62,7 +66,7 @@ def palette() -> Palette:
 
 def set_theme(name: str, font_scale: int = 100) -> Palette:
     global _current, _scale
-    _current = LIGHT if name == "light" else DARK
+    _current = DARK if name == "dark" else LIGHT
     _scale = max(0.85, min(1.5, font_scale / 100))
     return _current
 
@@ -122,17 +126,26 @@ QFrame#Card {{ background: {p.surface}; border: 1px solid {p.border}; border-rad
 QFrame#Card[accent="true"] {{ border: 1px solid {p.border_strong}; }}
 QFrame#SoftCard {{ background: {p.surface2}; border: 1px solid {p.border}; border-radius: 12px; }}
 QFrame#Hero {{
-    border-radius: 16px; border: 1px solid {p.border_strong};
+    border-radius: 16px; border: 1px solid {p.border};
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {p.primary_soft}, stop:1 {p.surface});
 }}
+QFrame#PostCard {{ background: {p.surface}; border: 1px solid {p.border}; border-radius: 12px; }}
+QLabel#StoryRing {{ border-radius: 34px; padding: 3px; background: {STORY_GRADIENT}; }}
+QLabel#Tick {{ background: transparent; }}
+QPushButton[variant="follow"] {{ background: {p.primary}; border: none; color: white; border-radius: 8px;
+    padding: 6px 16px; }}
+QPushButton[variant="follow"]:hover {{ background: {p.primary_hover}; }}
+QPushButton[variant="following"] {{ background: {p.surface3}; border: none; color: {p.text}; border-radius: 8px;
+    padding: 6px 16px; }}
+QFrame#CallWindow {{ background: #0C1014; }}
 QFrame#Divider {{ background: {p.border}; max-height: 1px; min-height: 1px; border: none; }}
 
 /* ---------- buttons ---------- */
 QPushButton {{
-    background: {p.surface2}; border: 1px solid {p.border}; border-radius: 9px;
+    background: {p.surface3}; border: 1px solid transparent; border-radius: 8px;
     padding: 8px 14px; font-weight: 600;
 }}
-QPushButton:hover {{ background: {p.surface3}; border-color: {p.border_strong}; }}
+QPushButton:hover {{ background: {p.border}; }}
 QPushButton:pressed {{ background: {p.border}; }}
 QPushButton:disabled {{ color: {p.faint}; background: {p.surface}; border-color: {p.border}; }}
 QPushButton[variant="primary"] {{ background: {p.primary}; border: 1px solid {p.primary}; color: {p.on_primary}; }}
@@ -207,9 +220,10 @@ QLabel#Pill[tone="danger"]  {{ background: rgba(240,79,95,0.15); color: {p.dange
 QLabel#Pill[tone="cyan"]    {{ background: rgba(34,211,238,0.13); color: {p.cyan}; }}
 
 /* ---------- chat ---------- */
-QFrame#BubbleOut {{ background: {p.bubble_out}; border-radius: 14px; border-bottom-right-radius: 4px; }}
-QFrame#BubbleIn {{ background: {p.bubble_in}; border: 1px solid {p.border}; border-radius: 14px;
-    border-bottom-left-radius: 4px; }}
+QFrame#BubbleOut {{ border-radius: 18px; border-bottom-right-radius: 6px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #3797F0, stop:1 #A033FF); }}
+QFrame#BubbleIn {{ background: {p.bubble_in}; border: none; border-radius: 18px;
+    border-bottom-left-radius: 6px; }}
 QFrame#BubbleOut QLabel {{ color: #FFFFFF; }}
 QFrame#ReplyQuote {{ background: rgba(0,0,0,0.18); border-left: 3px solid {p.cyan}; border-radius: 6px; }}
 QFrame#Composer {{ background: {p.surface}; border-top: 1px solid {p.border}; }}

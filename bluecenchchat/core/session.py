@@ -36,7 +36,9 @@ log = logging.getLogger("bluecenchchat.session")
 
 FT_JSON = 0x01
 FT_CHUNK = 0x02
+FT_MEDIA = 0x03
 CHUNK_HDR = struct.Struct(">16sIQ")  # transfer uuid, file index, offset
+MEDIA_HDR = struct.Struct(">BI")     # kind (1 audio, 2 video), sequence number
 
 
 class ProtocolError(Exception):
@@ -192,6 +194,9 @@ class PeerSession:
     async def send_chunk(self, transfer_id: bytes, index: int, offset: int, data: bytes) -> None:
         await self._send_plain(bytes([FT_CHUNK]) + CHUNK_HDR.pack(transfer_id, index, offset) + data)
 
+    async def send_media(self, kind: int, seq: int, data: bytes) -> None:
+        await self._send_plain(bytes([FT_MEDIA]) + MEDIA_HDR.pack(kind, seq & 0xFFFFFFFF) + data)
+
     async def recv(self):
         """Return (FT_JSON, dict) or (FT_CHUNK, (transfer_id, index, offset, data))."""
         assert self.channel is not None
@@ -212,6 +217,11 @@ class PeerSession:
                 raise ProtocolError("short chunk")
             tid, idx, off = CHUNK_HDR.unpack_from(pt, 1)
             return FT_CHUNK, (tid, idx, off, pt[1 + CHUNK_HDR.size :])
+        if ftype == FT_MEDIA:
+            if len(pt) < 1 + MEDIA_HDR.size:
+                raise ProtocolError("short media frame")
+            kind, seq = MEDIA_HDR.unpack_from(pt, 1)
+            return FT_MEDIA, (kind, seq, pt[1 + MEDIA_HDR.size :])
         raise ProtocolError(f"unknown frame type {ftype}")
 
     async def close(self) -> None:

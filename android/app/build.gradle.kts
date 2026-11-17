@@ -11,8 +11,8 @@ android {
         applicationId = "com.bluecench.chat"
         minSdk = 29          // Android 10+
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = (project.findProperty("appCode") as String?)?.toIntOrNull() ?: 1
+        versionName = (project.findProperty("appVersion") as String?) ?: "1.1.0"
     }
 
     buildTypes {

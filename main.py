@@ -119,7 +119,7 @@ def main() -> int:
     from bluecenchchat.app import AppController
     from bluecenchchat.ui import theme
 
-    theme.set_theme("dark")
+    theme.set_theme("light")
     app.setStyleSheet(theme.stylesheet())
 
     loop = qasync.QEventLoop(app)

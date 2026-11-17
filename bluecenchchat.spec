@@ -11,7 +11,8 @@ except Exception:
 a = Analysis(
     ["main.py"],
     pathex=["."],
-    datas=[("assets", "assets"), ("bluecenchchat/web/static", "bluecenchchat/web/static")],
+    datas=[("assets", "assets"), ("bluecenchchat/web/static", "bluecenchchat/web/static"),
+           ("bluecenchchat/verifiers.json", "bluecenchchat")],
     hiddenimports=hidden,
     excludes=["tkinter", "pytest", "PySide6.QtWebEngineWidgets", "PySide6.QtWebEngineCore", "PySide6.QtQml", "PySide6.QtQuick",
               "PySide6.Qt3DCore", "PySide6.QtMultimedia", "PySide6.QtPdf", "PySide6.QtCharts"],

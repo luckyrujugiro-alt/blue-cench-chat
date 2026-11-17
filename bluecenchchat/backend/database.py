@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -28,7 +28,32 @@ class Database:
             cur.close()
 
         Base.metadata.create_all(self.engine)
+        self._migrate()
         self._factory = sessionmaker(self.engine, expire_on_commit=False, future=True)
+
+    def _migrate(self) -> None:
+        """Add columns introduced by newer versions to existing databases.
+
+        create_all() creates missing tables but never alters existing ones, so an
+        installed 1.0 database is upgraded in place here without losing data.
+        """
+        insp = inspect(self.engine)
+        with self.engine.begin() as conn:
+            for table in Base.metadata.sorted_tables:
+                if not insp.has_table(table.name):
+                    continue
+                have = {c["name"] for c in insp.get_columns(table.name)}
+                for col in table.columns:
+                    if col.name in have:
+                        continue
+                    ddl = col.type.compile(dialect=self.engine.dialect)
+                    default = col.default.arg if col.default is not None and not callable(col.default.arg) else None
+                    if isinstance(default, bool):
+                        default = int(default)
+                    clause = f" DEFAULT {default!r}" if default is not None else ""
+                    if isinstance(default, str):
+                        clause = " DEFAULT '" + default.replace("'", "''") + "'"
+                    conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {ddl}{clause}'))
 
     def session(self) -> Session:
         return self._factory()

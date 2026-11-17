@@ -48,7 +48,7 @@ class AppController:
         self.show_auth()
 
     def show_auth(self) -> None:
-        theme.set_theme("dark")
+        theme.set_theme("light")
         icons.clear_cache()
         self.app.setStyleSheet(theme.stylesheet())
         self.auth_window = AuthWindow(self.auth)
@@ -70,7 +70,7 @@ class AppController:
         self.guest_account = account_id if guest else None
         self.node = BlueCenchChatNode(self.db, account_id, ident)
         s = self.node.settings
-        theme.set_theme(s.get("theme", "dark"), s.get("font_scale", 100))
+        theme.set_theme(s.get("theme", "light"), s.get("font_scale", 100))
         icons.clear_cache()
         self.app.setStyleSheet(theme.stylesheet())
         try:

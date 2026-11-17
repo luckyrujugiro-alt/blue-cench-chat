@@ -26,6 +26,8 @@ from .dialogs.common import OnboardingDialog
 from .pages.account import HelpPage, NotificationsPage, ProfilePage, SecurityPage, SettingsPage
 from .pages.connections import ConnectionsPage
 from .pages.dashboard import DashboardPage
+from .pages.home import HomePage
+from .pages.verify import VerifyPage
 from .pages.devices import DevicesPage
 from .pages.discover import DiscoverPage
 from .pages.messages import MessagesPage
@@ -33,6 +35,7 @@ from .pages.transfers import HistoryPage, TransfersPage
 from .pages.web import WebPage
 
 NAV = [
+    ("home", "Home", "house", HomePage),
     ("dashboard", "Dashboard", "layout-dashboard", DashboardPage),
     ("discover", "Discover People", "radar", DiscoverPage),
     ("connections", "My Connections", "users", ConnectionsPage),
@@ -43,6 +46,7 @@ NAV = [
     ("history", "Transfer History", "history", HistoryPage),
     ("notifications", "Notifications", "bell", NotificationsPage),
     ("profile", "My Profile", "user", ProfilePage),
+    ("verify", "Verification", "badge-check", VerifyPage),
     ("security", "Security && Privacy", "shield", SecurityPage),
     ("settings", "Settings", "settings", SettingsPage),
     ("help", "Help && Support", "life-buoy", HelpPage),
@@ -91,20 +95,154 @@ class MainWindow(QMainWindow):
         self._really_quit = False
         node.window_active = lambda: self.isVisible() and self.isActiveWindow() and not self.isMinimized()
         node.on_notify = self._desktop_notify
-        self.bridge.error.connect(lambda t: self.toast(t, "error"))
-        self.bridge.info.connect(self.toast)
-        self.bridge.request_received.connect(self._on_request)
-        self.bridge.transfer_offer.connect(self._on_offer)
-        for sig in (self.bridge.notification_added, self.bridge.messages_changed, self.bridge.contacts_changed):
-            sig.connect(lambda *_: self._schedule_badges())
+        self.call_window = None
+        self._wire_bridge()
         self._build()
         self._tray()
-        QShortcut(QKeySequence("Ctrl+K"), self, activated=lambda: self.navigate("discover"))
-        QShortcut(QKeySequence("Ctrl+M"), self, activated=lambda: self.navigate("messages"))
+        self._shortcuts()
+        if node.settings.get("check_updates", True) and not is_guest:
+            QTimer.singleShot(5000, self._check_updates)
         self._badge_pending = False
         self.update_badges()
         if not node.settings.get("onboarded") and not is_guest:
             QTimer.singleShot(600, self.show_onboarding)
+
+    def _wire_bridge(self) -> None:
+        self.bridge.error.connect(lambda t: self.toast(t, "error"))
+        self.bridge.info.connect(self.toast)
+        self.bridge.request_received.connect(self._on_request)
+        self.bridge.transfer_offer.connect(self._on_offer)
+        self.bridge.call_changed.connect(self._on_call)
+        self.bridge.social_changed.connect(self._update_admin_nav)
+        for sig in (self.bridge.notification_added, self.bridge.messages_changed, self.bridge.contacts_changed,
+                    self.bridge.social_changed):
+            sig.connect(lambda *_: self._schedule_badges())
+
+    SHORTCUTS = [
+        ("Ctrl+H", "Home feed"), ("Ctrl+K", "Discover people nearby"), ("Ctrl+M", "Messages"),
+        ("Ctrl+P", "New post"), ("Ctrl+N", "Edit your note"), ("Ctrl+D", "Switch light / dark mode"),
+        ("Ctrl+,", "Settings"), ("Ctrl+1 … Ctrl+9", "Jump to a sidebar item"),
+        ("Ctrl+Shift+V", "Voice call the open chat"), ("Ctrl+Shift+E", "Video call the open chat (Wi-Fi/LAN)"),
+        ("Ctrl+F", "Search in Messages"), ("Enter / Shift+Enter", "Send message / new line"),
+        ("Esc", "Hang up or close a dialog"), ("M / V in a call", "Mute / camera on-off"), ("F1", "Keyboard shortcuts"),
+    ]
+
+    def _shortcuts(self) -> None:
+        def sc(keys, fn):
+            QShortcut(QKeySequence(keys), self, activated=fn)
+        sc("Ctrl+H", lambda: self.navigate("home"))
+        sc("Ctrl+K", lambda: self.navigate("discover"))
+        sc("Ctrl+M", lambda: self.navigate("messages"))
+        sc("Ctrl+,", lambda: self.navigate("settings"))
+        sc("Ctrl+D", self.toggle_theme)
+        sc("F1", self.show_shortcuts)
+        sc("Ctrl+P", self._new_post)
+        sc("Ctrl+N", self._edit_note)
+        sc("Ctrl+Shift+V", lambda: self._call_open_chat(False))
+        sc("Ctrl+Shift+E", lambda: self._call_open_chat(True))
+        sc("Ctrl+F", self._focus_search)
+        for i in range(1, 10):
+            sc(f"Ctrl+{i}", lambda i=i: self._nav_index(i - 1))
+
+    def _nav_index(self, i: int) -> None:
+        keys = [k for k, b in self.nav.items() if not b.isHidden()]
+        if i < len(keys):
+            self.navigate(keys[i])
+
+    def _new_post(self) -> None:
+        from .components.social import CreatePostDialog
+        CreatePostDialog(self).exec()
+
+    def _edit_note(self) -> None:
+        from .components.social import edit_note_dialog
+        edit_note_dialog(self)
+
+    def _focus_search(self) -> None:
+        self.navigate("messages")
+        page = self.pages["messages"]
+        if getattr(page, "chat", None) is not None:
+            page.chat._toggle_search()
+            return
+        box = getattr(page, "search", None)
+        if box is not None:
+            box.setFocus()
+            box.selectAll()
+
+    def _call_open_chat(self, video: bool) -> None:
+        page = self.pages.get("messages")
+        if self._current == "messages" and page is not None and getattr(page, "chat", None):
+            self.start_call(page.chat.cid, video)
+        else:
+            self.toast("Open a chat first, then press the shortcut to call", "warning")
+
+    def toggle_theme(self) -> None:
+        dark = self.node.settings.get("theme", "light") == "dark"
+        self.node.update_settings(theme="light" if dark else "dark")
+        self.apply_theme(rebuild=True)
+
+    def show_shortcuts(self) -> None:
+        from PySide6.QtWidgets import QDialog, QGridLayout
+        d = QDialog(self)
+        d.setWindowTitle("Keyboard shortcuts")
+        lay = QVBoxLayout(d)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.addWidget(label("Keyboard shortcuts", "h2"))
+        g = QGridLayout()
+        g.setHorizontalSpacing(24)
+        for r, (k, what) in enumerate(self.SHORTCUTS):
+            key = label(k, "mono")
+            g.addWidget(key, r, 0)
+            g.addWidget(label(what), r, 1)
+        lay.addLayout(g)
+        d.exec()
+
+    def _check_updates(self) -> None:
+        import asyncio
+
+        from ..core import updates
+
+        async def check():
+            v = await asyncio.to_thread(updates.latest_version)
+            if v and updates.is_newer(v):
+                self.toast(f"Blue Cench Chat {v} is available - Help & Support > Download update", "info")
+                self.node.notify("update", f"Update available: {v}", "Download it from Help & Support.",
+                                 "notify_messages", ref=updates.SETUP_URL)
+        self.bridge.run(check())
+
+    # ------------------------------------------------------------------ calls
+    def start_call(self, contact_id: int, video: bool) -> None:
+        cur = self.node.calls.current
+        if cur and cur.state != "ended":
+            self.toast("You're already in a call", "warning")
+            return
+        self.bridge.run(self.node.calls.start(contact_id, video))
+
+    def _on_call(self, call) -> None:
+        from .calls_ui import CallWindow
+        if call is None:
+            return
+        w = self.call_window
+        if w is not None and w.call.id == call.id:
+            w.update_state(call)
+            return
+        if call.state == "ended":
+            return
+        if w is not None:
+            w.close()
+        self.call_window = CallWindow(self, call)
+        self.call_window.finished.connect(lambda _r: setattr(self, "call_window", None))
+        if not call.outgoing:
+            self.show_window()
+            c = self.node.repo.contact(call.contact_id)
+            if hasattr(self, "tray") and not self.window_focused():
+                self.tray.showMessage("Incoming call", c.name if c else "", QSystemTrayIcon.MessageIcon.Information,
+                                      8000)
+        self.call_window.show()
+        self.call_window.raise_()
+
+    def _update_admin_nav(self) -> None:
+        if "verify" in self.nav:
+            self.nav["verify"].setVisible(self.node.social.is_admin())
 
     # ------------------------------------------------------------------ layout
     def _build(self) -> None:
@@ -133,6 +271,12 @@ class MainWindow(QMainWindow):
         self._brand_name = name
         brand.addWidget(name)
         brand.addStretch(1)
+        dark = self.node.settings.get("theme", "light") == "dark"
+        tt = tool_button("sun" if dark else "moon", "Switch to light mode (Ctrl+D)" if dark else
+                         "Switch to dark mode (Ctrl+D)")
+        tt.clicked.connect(self.toggle_theme)
+        self._theme_btn = tt
+        brand.addWidget(tt)
         sl.addLayout(brand)
         sl.addSpacing(16)
         self.nav_group = QButtonGroup(self)
@@ -185,7 +329,8 @@ class MainWindow(QMainWindow):
         self._current = None
         self._compact = None
         self._apply_compact(self.width() < 1180)
-        self.navigate("dashboard")
+        self._update_admin_nav()
+        self.navigate("home")
 
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
@@ -198,6 +343,7 @@ class MainWindow(QMainWindow):
         self._compact = compact
         self._side.setFixedWidth(76 if compact else 248)
         self._brand_name.setVisible(not compact)
+        self._theme_btn.setVisible(not compact)
         for eb in self._eyebrows:
             eb.setVisible(not compact)
         for key, b in self.nav.items():
@@ -216,7 +362,7 @@ class MainWindow(QMainWindow):
 
     def apply_theme(self, rebuild: bool = False) -> None:
         s = self.node.settings
-        theme.set_theme(s.get("theme", "dark"), s.get("font_scale", 100))
+        theme.set_theme(s.get("theme", "light"), s.get("font_scale", 100))
         icons.clear_cache()
         QApplication.instance().setStyleSheet(theme.stylesheet())
         if rebuild:
@@ -226,12 +372,7 @@ class MainWindow(QMainWindow):
             self.bridge.detach()
             self.bridge.deleteLater()
             self.bridge = Bridge(self.node)
-            self.bridge.error.connect(lambda t: self.toast(t, "error"))
-            self.bridge.info.connect(self.toast)
-            self.bridge.request_received.connect(self._on_request)
-            self.bridge.transfer_offer.connect(self._on_offer)
-            for sig in (self.bridge.notification_added, self.bridge.messages_changed, self.bridge.contacts_changed):
-                sig.connect(lambda *_: self._schedule_badges())
+            self._wire_bridge()
             self._build()
             old.deleteLater()
             if current:

@@ -20,7 +20,9 @@ from ..backend.user_service import UserRepository
 from . import crypto
 from .connection_manager import ConnectionManager
 from .discovery_engine import DiscoveryEngine
+from .calls import CallManager
 from .messaging import MessagingService
+from .social import SocialService
 from .transfer_engine import TransferEngine
 from .transports import bluetooth
 from .transports.bluetooth import BleBeacon, RfcommTransport
@@ -64,6 +66,8 @@ class BlueCenchChatNode:
         self.discovery = DiscoveryEngine(self)
         self.messaging = MessagingService(self)
         self.transfers = TransferEngine(self)
+        self.social = SocialService(self)
+        self.calls = CallManager(self)
         self.lan = LanTransport(self.connections.handle_incoming, self.discovery.on_lan_beacon, beacon_port)
         self.rfcomm = RfcommTransport(self.connections.handle_incoming)
         self.ble = BleBeacon(self.discovery.on_ble_sighting)

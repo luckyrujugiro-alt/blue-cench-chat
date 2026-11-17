@@ -164,3 +164,65 @@ async def test_beacon_announces_phone_access(pair):
     assert payload["web"] == a.web.port and len(payload["fp"].split(":")) == 16
     await a.web.stop()
     assert a.lan._beacon_payload["web"] == 0
+
+
+async def test_social_from_phone(web):
+    """Phone: follow, note, post with a photo, like, comment, profile, tick-request rule."""
+    import io
+
+    from PIL import Image
+
+    a, b, client = web
+    ab, ba = await connect_and_accept(a, b)
+    await pair_client(a, client)
+    # follow Bob from the phone -> Bob sees a follower
+    assert (await client.post(f"/api/follow/{ab}", json={"on": True}, headers=H)).status_code == 200
+    await wait_for(lambda: b.repo.contact(ba).follows_me)
+    await wait_for(lambda: a.repo.contact(ab).followers_count == 1)
+    # note
+    assert (await client.post("/api/note", json={"text": "Hello world", "music": "Song - Artist"}, headers=H)).status_code == 200
+    await wait_for(lambda: b.repo.contact(ba).note_text == "Hello world")
+    notes = (await client.get("/api/notes")).json()
+    assert notes["me"]["text"] == "Hello world"
+    # post with a photo
+    bio = io.BytesIO()
+    Image.new("RGB", (1600, 1200), (30, 140, 240)).save(bio, "PNG")
+    r = await client.post("/api/posts", data={"caption": "First post", "music": ""},
+                          files={"image": ("pic.png", bio.getvalue(), "image/png")}, headers=H)
+    assert r.status_code == 200, r.text
+    pid = r.json()["id"]
+    img = await client.get(f"/api/posts/{pid}/image")
+    assert img.status_code == 200 and img.headers["content-type"] == "image/jpeg"
+    assert max(Image.open(io.BytesIO(img.content)).size) <= 1080
+    # empty post rejected; CSRF header required
+    assert (await client.post("/api/posts", data={"caption": " "}, headers=H)).status_code == 400
+    assert (await client.post(f"/api/posts/{pid}/like")).status_code in (401, 403)
+    # Bob follows back and sees the post, likes and comments from his side
+    await b.social.follow(ba, True)
+    await wait_for(lambda: b.social.post(pid) is not None)
+    await b.social.toggle_like(pid)
+    await b.social.add_comment(pid, "Nice!")
+    await wait_for(lambda: a.social.post(pid).likes == 1 and a.social.post(pid).comments == 1)
+    # phone likes Bob's post
+    bp = await b.social.create_post("Bob's post", None)
+    await wait_for(lambda: a.social.post(bp) is not None)
+    feed = (await client.get("/api/feed")).json()
+    assert {p["id"] for p in feed} >= {pid, bp}
+    r = await client.post(f"/api/posts/{bp}/like", headers=H)
+    assert r.json()["liked"] is True
+    await wait_for(lambda: b.social.post(bp).likes == 1)
+    assert (await client.post(f"/api/posts/{bp}/comments", json={"text": "From my phone"}, headers=H)).status_code == 200
+    await wait_for(lambda: any(c.text == "From my phone" for c in b.social.comments(bp)))
+    comments = (await client.get(f"/api/posts/{pid}/comments")).json()
+    assert comments[0]["text"] == "Nice!"
+    # profiles
+    me = (await client.get("/api/profile")).json()
+    assert me["followers"] == 1 and me["posts"] == 1 and me["tick"] is False
+    other = (await client.get(f"/api/profile/{ab}")).json()
+    assert other["i_follow"] and other["follows_me"] and other["posts_list"][0]["id"] == bp
+    # blue tick needs 40 followers
+    r = await client.post("/api/tick/request", json={"message": "please"}, headers=H)
+    assert r.status_code == 400 and "40 followers" in r.json()["detail"]
+    # delete own post
+    assert (await client.post(f"/api/posts/{pid}/delete", headers=H)).status_code == 200
+    assert a.social.post(pid) is None

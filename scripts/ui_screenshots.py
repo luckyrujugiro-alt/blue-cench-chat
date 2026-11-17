@@ -37,7 +37,7 @@ async def scenario(out: Path, mode: str) -> None:
     for name, full in (("alice", "Alice Uwase"), ("bob", "Bob Mugisha")):
         db = Database(tmp / f"{name}.db")
         acc, _, ident = AuthService(db).register(RegistrationData(
-            full_name=full, username=name, email=f"{name}@example.com", password="Passw0rd!x",
+            full_name=full, username="bluecenchchat" if name == "alice" else name, email=f"{name}@example.com", password="Passw0rd!x",
             confirm_password="Passw0rd!x"))
         n = BlueCenchChatNode(db, acc.id, ident, beacon_port=port)
         (tmp / f"{name}_dl").mkdir()
@@ -94,6 +94,39 @@ async def scenario(out: Path, mode: str) -> None:
     await c.connections.send_request(cc, "Can I join the file share?")
     await until(lambda: a.repo.contact_by_peer(c.identity.user_id) is not None
                 and a.repo.contact_by_peer(c.identity.user_id).status == "pending_in")
+    # ---- social: Alice is the official account (key published for this demo only)
+    from bluecenchchat.core import verification as vf
+    vf.verifier_keys.cache_clear() if hasattr(vf.verifier_keys, "cache_clear") else None
+    vf.verifier_keys = lambda: frozenset({a.identity.public_bytes})
+    img = (ROOT / "assets" / "logo" / "bluecenchchat.png").read_bytes()
+    try:
+        from PIL import Image, ImageDraw
+        import io
+        im = Image.new("RGB", (1080, 1080))
+        d = ImageDraw.Draw(im)
+        for y in range(1080):
+            d.line([(0, y), (1080, y)], fill=(55 + y // 12, 151 - y // 20, 240 - y // 30))
+        lg = Image.open(io.BytesIO(img)).convert("RGBA").resize((520, 520))
+        im.paste(lg, (280, 280), lg)
+        bio = io.BytesIO()
+        im.save(bio, "JPEG", quality=85)
+        photo = bio.getvalue()
+    except Exception:
+        photo = img
+    await a.social.follow(ab, True)
+    await b.social.follow(ba, True)
+    await until(lambda: a.repo.contact(ab).follows_me)
+    await b.social.set_note("Shipping the new design today", "Calm Down - Rema")
+    await a.social.set_note("Blue Cench Chat 1.1 is here!", "")
+    pid = await b.social.create_post("New workspace setup - files fly over Wi-Fi now", photo, "Essence - Wizkid")
+    await until(lambda: a.social.post(pid) is not None)
+    await a.social.toggle_like(pid)
+    await a.social.add_comment(pid, "Looks amazing!")
+    await a.social.create_post("Welcome to Blue Cench Chat - chat, share files, call and post, all offline.", photo)
+    vf.MIN_FOLLOWERS_FOR_REQUEST, _min = 1, vf.MIN_FOLLOWERS_FOR_REQUEST  # demo only
+    await b.social.request_tick("Designer - I share design files with my class")
+    vf.MIN_FOLLOWERS_FOR_REQUEST = _min
+    a.repo.add_message(contact_id=ab, direction="out", kind="call", body="Voice call · 4:12", status="read")
     await asyncio.sleep(2.5)  # let LAN presence beacons arrive
 
     app = QApplication.instance()
@@ -116,7 +149,7 @@ async def scenario(out: Path, mode: str) -> None:
     await asyncio.sleep(0.5)
     a.update_settings(web_enabled=True)
     await a.web.start(port=0)
-    pages = ["dashboard", "discover", "connections", "messages", "transfers", "devices", "web", "history",
+    pages = ["home", "verify", "dashboard", "discover", "connections", "messages", "transfers", "devices", "web", "history",
              "notifications", "profile", "security", "settings", "help"]
     for i, key in enumerate(pages, 1):
         if key == "messages":

@@ -79,6 +79,23 @@ class MessageRow(QWidget):
             lay.addWidget(d)
         row = QHBoxLayout()
         row.setSpacing(0)
+        if m.kind == "call":
+            pill = QFrame()
+            pill.setObjectName("SoftCard")
+            pl = QHBoxLayout(pill)
+            pl.setContentsMargins(12, 6, 14, 6)
+            pl.setSpacing(8)
+            missed = m.body.startswith("Missed")
+            pl.addWidget(icon_label("video" if "Video" in m.body else ("phone-incoming" if m.direction == "in"
+                                                                     else "phone"), 15,
+                                    p.danger if missed else p.muted))
+            pl.addWidget(label(f"{m.body}  ·  {time.strftime('%H:%M', time.localtime(m.ts))}",
+                               "muted" if not missed else None))
+            row.addStretch(1)
+            row.addWidget(pill)
+            row.addStretch(1)
+            lay.addLayout(row)
+            return
         if m.kind == "file" and m.transfer_id:
             card = TransferRow(chat.bridge, m.transfer_id, compact=True)
             card.setMaximumWidth(520)
@@ -202,8 +219,11 @@ class ChatView(QWidget):
         self.name = label("", "h3")
         self.name.setTextFormat(Qt.TextFormat.PlainText)
         top.addWidget(self.name)
-        self.verified = icon_label("badge-check", 16, p.success)
-        self.verified.setToolTip("Verified contact")
+        self.tick = icon_label("badge-check", 16, theme.VERIFIED_BLUE)
+        self.tick.setToolTip("Verified by Blue Cench Chat")
+        top.addWidget(self.tick)
+        self.verified = icon_label("shield-check", 15, p.success)
+        self.verified.setToolTip("You checked this person's safety number")
         top.addWidget(self.verified)
         self.enc = icon_label("lock", 13, p.faint)
         self.enc.setToolTip("End-to-end encrypted session (X25519 + Ed25519, ChaCha20-Poly1305)")
@@ -215,6 +235,12 @@ class ChatView(QWidget):
         hl.addLayout(col, 1)
         self.transport = Pill("", "cyan")
         hl.addWidget(self.transport)
+        self.b_voice = tool_button("phone", "Voice call (Ctrl+Shift+V) - works over Bluetooth and Wi-Fi")
+        self.b_video = tool_button("video", "Video call (Ctrl+Shift+E) - needs Wi-Fi / LAN")
+        hl.addWidget(self.b_voice)
+        hl.addWidget(self.b_video)
+        self.b_voice.clicked.connect(lambda: win.start_call(self.cid, False))
+        self.b_video.clicked.connect(lambda: win.start_call(self.cid, True))
         b_search = tool_button("search", "Search in conversation")
         b_files = tool_button("paperclip", "Send files")
         b_verify = tool_button("shield-check", "Verify safety number")
@@ -307,6 +333,12 @@ class ChatView(QWidget):
         self.avatar.set(c.name, c.avatar, s is not None, c.peer_user_id)
         self.name.setText(c.name)
         self.verified.setVisible(c.verified)
+        self.tick.setVisible(self.node.social.is_verified(c))
+        can_call = s is not None and c.status == "accepted"
+        self.b_voice.setEnabled(can_call)
+        self.b_video.setEnabled(can_call and s.transport == "lan")
+        self.b_video.setToolTip("Video call (Ctrl+Shift+E)" if can_call and s.transport == "lan" else
+                                "Video calls need both devices on the same Wi-Fi / LAN")
         if self.typing_lbl.text():
             pass
         elif s:

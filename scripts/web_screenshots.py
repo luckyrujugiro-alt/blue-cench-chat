@@ -67,6 +67,25 @@ async def main(out: Path) -> None:
     cc = await c.connections.connect(lan=("127.0.0.1", a.lan.port))
     await c.connections.send_request(cc, "Hi, can we connect?")
     await until(lambda: (x := a.repo.contact_by_peer(c.identity.user_id)) and x.status == "pending_in")
+    # social demo data
+    import io
+    from PIL import Image, ImageDraw
+    im = Image.new("RGB", (1080, 1080))
+    d = ImageDraw.Draw(im)
+    for y in range(1080):
+        d.line([(0, y), (1080, y)], fill=(55 + y // 12, 151 - y // 20, 240 - y // 30))
+    lg = Image.open(ROOT / "assets" / "logo" / "bluecenchchat.png").convert("RGBA").resize((520, 520))
+    im.paste(lg, (280, 280), lg)
+    bio = io.BytesIO()
+    im.save(bio, "JPEG", quality=85)
+    await a.social.follow(ab, True)
+    await b.social.follow(ba, True)
+    await b.social.set_note("Library till 6", "Calm Down - Rema")
+    await a.social.set_note("Exams week!", "")
+    pid = await b.social.create_post("Study corner - slides came over Wi-Fi in seconds", bio.getvalue(), "Essence - Wizkid")
+    await until(lambda: a.social.post(pid) is not None)
+    await a.social.toggle_like(pid)
+    await a.social.add_comment(pid, "Nice setup!")
     await asyncio.sleep(2.5)
     await a.web.start(port=0)
     base = f"https://127.0.0.1:{a.web.port}/"
@@ -87,8 +106,10 @@ async def main(out: Path) -> None:
                 await page.screenshot(path=str(out / f"web-{kind}-0-pair.png"))
             await page.fill(".code-input", a.web.current_code())
             await page.wait_for_selector(".nav")
+            await asyncio.sleep(1.2)
+            await page.screenshot(path=str(out / f"web-{kind}-1-home.png"))
+            await page.click('.nav button[aria-label="Chats"]')
             await asyncio.sleep(0.6)
-            await page.screenshot(path=str(out / f"web-{kind}-1-chats.png"))
             await page.click(".row")
             await page.wait_for_selector(".b")
             await asyncio.sleep(0.8)
@@ -101,7 +122,7 @@ async def main(out: Path) -> None:
                 await page.screenshot(path=str(out / f"web-{kind}-3-sent.png"))
             if kind != "tablet":
                 await page.click(".back")
-            for i, tab in enumerate(("People", "Nearby", "Files", "More"), 4):
+            for i, tab in enumerate(("People", "Nearby", "Files", "Profile"), 4):
                 if True:
                     await page.click(f'.nav button[aria-label="{tab}"]')
                     await asyncio.sleep(0.8)

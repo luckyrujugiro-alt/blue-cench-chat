@@ -7,7 +7,7 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, WebSocket
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, WebSocket
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -41,6 +41,19 @@ class ReactIn(BaseModel):
     r: str = Field(default="", max_length=16)
 
 
+class CommentIn(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+
+
+class NoteIn(BaseModel):
+    text: str = Field(default="", max_length=60)
+    music: str = Field(default="", max_length=80)
+
+
+class TickIn(BaseModel):
+    message: str = Field(default="", max_length=200)
+
+
 class ConnectIn(BaseModel):
     key: str = Field(max_length=80)
 
@@ -51,8 +64,21 @@ def _contact(node, c) -> dict:
         "id": c.id, "uid": c.peer_user_id, "name": c.name, "username": c.username, "about": c.about,
         "status": c.status, "verified": c.verified, "favorite": c.favorite, "online": s is not None,
         "transport": node.transport_label(s.transport) if s else "", "last_seen": c.last_seen,
-        "has_avatar": bool(c.avatar),
+        "has_avatar": bool(c.avatar), "tick": node.social.is_verified(c), "i_follow": c.i_follow,
+        "follows_me": c.follows_me, "followers": c.followers_count, "following": c.following_count,
+        "posts": c.posts_count, "note": c.note_text, "music": c.note_music,
     }
+
+
+def _post(node, p) -> dict:
+    me = p.author_uid == node.identity.user_id
+    c = None if me else node.repo.contact_by_peer(p.author_uid)
+    acc = node.repo.account()
+    return {"id": p.id, "mine": me, "author": acc.display_name if me else (c.name if c else p.author_uid),
+            "author_id": c.id if c else None, "uid": p.author_uid,
+            "tick": node.social.is_verified_me() if me else bool(c and node.social.is_verified(c)),
+            "caption": p.caption, "music": p.music, "has_image": bool(p.image), "ts": p.created_at,
+            "likes": p.likes, "comments": p.comments, "liked": p.liked, "saved": p.saved}
 
 
 def _message(m) -> dict:
@@ -373,6 +399,115 @@ def create_app(comp: WebCompanion) -> FastAPI:
             raise HTTPException(404, "File is not available")
         return FileResponse(p, filename=Path(p).name)
 
+    # ---------------------------------------------------------------- social (Instagram-style)
+    def get_post(pid: str):
+        p = node.social.post(pid)
+        if p is None:
+            raise HTTPException(404, "Post not found")
+        return p
+
+    @app.get("/api/feed")
+    async def feed(dev=auth):
+        return [_post(node, p) for p in node.social.feed(60)]
+
+    @app.get("/api/notes")
+    async def notes(dev=auth):
+        acc = node.repo.account()
+        mine = node.social.note()
+        people = [c for c in node.repo.contacts() if (c.note_text or c.note_music) and c.status != "blocked"]
+        people.sort(key=lambda c: -c.note_ts)
+        return {"me": {"name": acc.display_name, **mine},
+                "people": [{"id": c.id, "name": c.name, "note": c.note_text, "music": c.note_music,
+                            "has_avatar": bool(c.avatar), "tick": node.social.is_verified(c)} for c in people[:40]]}
+
+    @app.post("/api/note")
+    async def set_note(body: NoteIn, dev=auth):
+        await node.social.set_note(body.text, body.music)
+        return {"ok": True}
+
+    @app.post("/api/posts")
+    async def create_post(caption: str = Form(default="", max_length=2200), music: str = Form(default="", max_length=80),
+                          image: UploadFile | None = File(default=None), dev=auth):
+        data = None
+        if image is not None and image.filename:
+            data = await image.read(25 * 1024 * 1024 + 1)
+            if len(data) > 25 * 1024 * 1024:
+                raise HTTPException(413, "Photo too large (25 MB limit)")
+        if not caption.strip() and not data:
+            raise HTTPException(400, "Add a photo or write a caption")
+        try:
+            pid = await node.social.create_post(caption, data, music)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return _post(node, node.social.post(pid))
+
+    @app.get("/api/posts/{pid}/image")
+    async def post_image(pid: str, dev=auth):
+        p = get_post(pid)
+        if not p.image:
+            raise HTTPException(404)
+        return Response(p.image, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+
+    @app.get("/api/posts/{pid}/comments")
+    async def comments(pid: str, dev=auth):
+        get_post(pid)
+        asyncio.ensure_future(node.social.refresh_comments(pid))
+        return [{"name": c.author_name, "uid": c.author_uid, "text": c.text, "ts": c.ts}
+                for c in node.social.comments(pid)]
+
+    @app.post("/api/posts/{pid}/comments")
+    async def comment(pid: str, body: CommentIn, dev=auth):
+        get_post(pid)
+        await node.social.add_comment(pid, body.text)
+        return {"ok": True}
+
+    @app.post("/api/posts/{pid}/{action}")
+    async def post_action(pid: str, action: str, dev=auth):
+        get_post(pid)
+        if action == "like":
+            await node.social.toggle_like(pid)
+        elif action == "save":
+            await node.social.toggle_save(pid)
+        elif action == "delete":
+            await node.social.delete_post(pid)
+            return {"ok": True}
+        else:
+            raise HTTPException(404)
+        return _post(node, node.social.post(pid))
+
+    @app.get("/api/profile")
+    async def my_profile(dev=auth):
+        from ..core import verification as vf
+        acc = node.repo.account()
+        st = node.social.stats()
+        return {"name": acc.display_name, "username": acc.username, "uid": acc.user_id, "about": acc.about,
+                "tick": node.social.is_verified_me(), "admin": node.social.is_admin(), **st,
+                "note": node.social.note(), "need": vf.MIN_FOLLOWERS_FOR_REQUEST,
+                "tick_requested": bool(node.settings.get("tick_request")),
+                "posts_list": [_post(node, p) for p in node.social.posts_by(acc.user_id)]}
+
+    @app.get("/api/profile/{cid}")
+    async def profile(cid: int, dev=auth):
+        c = get_contact(cid)
+        return {**_contact(node, c), "posts_list": [_post(node, p) for p in node.social.posts_by(c.peer_user_id)]}
+
+    @app.post("/api/follow/{cid}")
+    async def follow(cid: int, body: FlagIn, dev=auth):
+        get_contact(cid)
+        try:
+            await node.social.follow(cid, body.on)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return {"ok": True}
+
+    @app.post("/api/tick/request")
+    async def tick_request(body: TickIn, dev=auth):
+        try:
+            msg = await node.social.request_tick(body.message)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return {"ok": True, "message": msg}
+
     # ---------------------------------------------------------------- notifications
     @app.get("/api/notifications")
     async def notifications(dev=auth):
@@ -416,7 +551,7 @@ def create_app(comp: WebCompanion) -> FastAPI:
             return cb
 
         subs = [(e, push(e)) for e in ("messages", "message", "contacts", "session", "peers", "transfer",
-                                       "transfer_offer", "notification", "typing", "request", "status")]
+                                       "transfer_offer", "notification", "typing", "request", "status", "social")]
         for e, cb in subs:
             node.bus.on(e, cb)
 

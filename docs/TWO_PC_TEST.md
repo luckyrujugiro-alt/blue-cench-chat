@@ -8,7 +8,7 @@ Record the result of each step (pass / fail / notes). Logs are in `%APPDATA%\Blu
 
 ## A. Install
 
-1. Run `BlueCenchChat-Setup-1.0.0.exe` on both PCs. Check that the Start-menu shortcut, the desktop shortcut and the uninstaller entry under *Apps* all exist.
+1. Run `BlueCenchChat-Setup.exe` on both PCs. Check that the Start-menu shortcut, the desktop shortcut and the uninstaller entry under *Apps* all exist.
 2. Start Blue Cench Chat on both. If Windows Firewall asks, choose **Private networks → Allow**.
 3. Create an account on each PC: **PC-A "alice"** and **PC-B "bob"**. Save the recovery keys.
 

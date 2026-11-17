@@ -30,6 +30,8 @@ class Bridge(QObject):
     notification_added = Signal()
     status_changed = Signal()
     web_changed = Signal()
+    social_changed = Signal()
+    call_changed = Signal(object)
     error = Signal(str)
     info = Signal(str, str)  # text, tone
 
@@ -50,6 +52,8 @@ class Bridge(QObject):
         sub("notification", lambda _n: self.notification_added.emit())
         sub("status", self.status_changed.emit)
         sub("web", self.web_changed.emit)
+        sub("social", self.social_changed.emit)
+        sub("call", self.call_changed.emit)
 
     def _sub(self, event: str, cb) -> None:
         self.node.bus.on(event, cb)

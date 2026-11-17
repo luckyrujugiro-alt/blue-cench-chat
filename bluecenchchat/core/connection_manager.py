@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 
 from . import crypto
-from .session import FT_CHUNK, FT_JSON, PeerSession, ProtocolError
+from .session import FT_CHUNK, FT_JSON, FT_MEDIA, PeerSession, ProtocolError
 from .transports.base import Stream, TransportError
 
 log = logging.getLogger("bluecenchchat.connections")
@@ -191,6 +191,7 @@ class ConnectionManager:
         repo.log("connection", f"Secure session with {contact.name} over {self.node.transport_label(session.stream.kind)}")
         if contact.status == "accepted":
             await self.node.on_contact_online(contact.id)
+        asyncio.ensure_future(self.node.social.on_session(contact.id))
         return contact.id
 
     # -- reader loop -----------------------------------------------------------
@@ -204,6 +205,10 @@ class ConnectionManager:
                 contact = self.node.repo.contact(active.contact_id)
                 if contact is None:
                     break
+                if ftype == FT_MEDIA:
+                    if contact.status == "accepted":
+                        self.node.calls.on_media(contact, *payload)
+                    continue
                 if ftype == FT_CHUNK:
                     if contact.status != "accepted":
                         raise ProtocolError("file data from unaccepted peer")
@@ -217,13 +222,17 @@ class ConnectionManager:
                     continue
                 if t == "pong":
                     continue
-                if contact.status != "accepted" and t not in STRANGER_ALLOWED:
+                if contact.status != "accepted" and t not in STRANGER_ALLOWED and not t.startswith("s_"):
                     active.dropped += 1
                     if active.dropped > 20:
                         raise ProtocolError("peer keeps sending without an accepted connection")
                     continue
                 if t.startswith("conn_"):
                     await self._on_conn_message(contact, active, payload)
+                elif t.startswith("s_"):
+                    await self.node.social.on_message(contact, payload)
+                elif t.startswith("call_"):
+                    await self.node.calls.on_message(contact, payload)
                 elif t.startswith("x_"):
                     await self.node.transfers.on_message(contact, payload)
                 else:
@@ -244,6 +253,7 @@ class ConnectionManager:
             del self.sessions[peer_uid]
         await active.session.close()
         self.node.transfers.on_session_lost(active.contact_id)
+        self.node.calls.on_session_lost(active.contact_id)
         self.node.repo.set_contact(active.contact_id, last_seen=time.time())
         c = self.node.repo.contact(active.contact_id)
         if c and c.status == "accepted" and not self.session_for_contact(c.id):

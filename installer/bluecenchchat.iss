@@ -1,6 +1,8 @@
 ; Inno Setup 6 script. Build the app first (pyinstaller bluecenchchat.spec), then compile this file.
 #define AppName "Blue Cench Chat"
-#define AppVersion "1.0.0"
+#ifndef AppVersion
+  #define AppVersion "1.1.0"
+#endif
 
 [Setup]
 AppId={{6E1B6C2F-5E0B-4C55-9B3B-2B7C0F4F9A11}
@@ -12,7 +14,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=..\dist
-OutputBaseFilename=BlueCenchChat-Setup-{#AppVersion}
+OutputBaseFilename=BlueCenchChat-Setup
 SetupIconFile=..\assets\logo\bluecenchchat.ico
 UninstallDisplayIcon={app}\BlueCenchChat.exe
 Compression=lzma2

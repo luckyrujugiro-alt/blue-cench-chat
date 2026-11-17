@@ -1,19 +1,21 @@
 /* Blue Cench Chat web - responsive for watches, phones, tablets and desktops */
 :root {
-  --bg: #070B14; --rail: #0A1020; --surface: #0E1526; --surface2: #131C30; --surface3: #1A2540;
-  --border: #1C2742; --border2: #2A3A5E; --text: #E7EEF9; --muted: #8C9AB6; --faint: #5E6B86;
-  --primary: #2F7BFF; --primary2: #4A8DFF; --soft: #13264D; --cyan: #22D3EE; --ok: #22C55E;
-  --warn: #F5A524; --bad: #F04F5F; --out: #1D4ED8; --in: #16203A;
+  /* Instagram-style light theme (default) */
+  --bg: #FFFFFF; --rail: #FFFFFF; --surface: #FFFFFF; --surface2: #FAFAFA; --surface3: #EFEFEF;
+  --border: #DBDBDB; --border2: #C7C7C7; --text: #0C1014; --muted: #737373; --faint: #8E8E8E;
+  --primary: #0095F6; --primary2: #1877F2; --soft: #EFEFEF; --cyan: #0095F6; --ok: #22A559;
+  --warn: #E08E0B; --bad: #ED4956; --out: linear-gradient(135deg, #3797F0, #A033FF); --in: #EFEFEF;
+  --tick: #0095F6; --ring: linear-gradient(45deg, #FEDA75, #FA7E1E, #D62976, #962FBF, #4F5BD5);
   --r: 14px; --tap: 44px;
   --st: env(safe-area-inset-top, 0px); --sb: env(safe-area-inset-bottom, 0px);
   --sl: env(safe-area-inset-left, 0px); --sr: env(safe-area-inset-right, 0px);
-  color-scheme: dark;
+  color-scheme: light;
 }
-@media (prefers-color-scheme: light) {
-  :root { --bg: #F3F6FB; --rail: #FFFFFF; --surface: #FFFFFF; --surface2: #F1F4FA; --surface3: #E7ECF5;
-    --border: #DFE5F0; --border2: #C9D3E4; --text: #0E1726; --muted: #56637A; --faint: #8D98AD;
-    --primary: #2563EB; --primary2: #1D4ED8; --soft: #E3ECFF; --cyan: #0891B2; --out: #2563EB; --in: #EEF2F8;
-    color-scheme: light; }
+:root[data-theme="dark"] {
+  --bg: #000000; --rail: #000000; --surface: #000000; --surface2: #121212; --surface3: #262626;
+  --border: #262626; --border2: #363636; --text: #F5F5F5; --muted: #A8A8A8; --faint: #737373;
+  --primary: #0095F6; --primary2: #4CB5F9; --soft: #262626; --cyan: #4CB5F9; --in: #262626;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 #root, html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
@@ -121,7 +123,7 @@ a { color: var(--primary2); }
 .b { max-width: min(78%, 560px); padding: 8px 12px 6px; border-radius: 16px; position: relative; word-wrap: break-word;
   white-space: pre-wrap; cursor: pointer; user-select: text; }
 .b.out { align-self: flex-end; background: var(--out); color: #fff; border-bottom-right-radius: 5px; }
-.b.in { align-self: flex-start; background: var(--in); border: 1px solid var(--border); border-bottom-left-radius: 5px; }
+.b.in { align-self: flex-start; background: var(--in); border: 1px solid transparent; border-bottom-left-radius: 5px; }
 .b .t { display: flex; justify-content: flex-end; align-items: center; gap: 3px; font-size: 11px; opacity: .75; margin-top: 2px; }
 .b .t .ic { width: 14px; height: 14px; } .b .t .read { color: #7DE3F4; opacity: 1; }
 .b .q { background: rgba(0,0,0,.18); border-left: 3px solid var(--cyan); border-radius: 6px; padding: 4px 8px; margin-bottom: 4px; font-size: 13px; opacity: .9; }
@@ -209,3 +211,44 @@ a { color: var(--primary2); }
   .faint.hide-watch, .hide-watch { display: none !important; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---------- Instagram-style social ---------- */
+.tick { color: var(--tick); display: inline-flex; margin-left: 3px; vertical-align: -2px; }
+.notes { display: flex; gap: 14px; overflow-x: auto; padding: 12px 14px 6px; scrollbar-width: none; }
+.notes::-webkit-scrollbar { display: none; }
+.note { flex: none; width: 78px; text-align: center; cursor: pointer; background: none; border: 0; padding: 0; }
+.note .bub { font-size: 11.5px; line-height: 1.25; background: var(--surface3); border-radius: 12px; padding: 5px 6px;
+  height: 40px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; margin-bottom: 4px; }
+.note .bub.empty { color: var(--faint); }
+.note .nm { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ring { display: inline-grid; place-items: center; padding: 3px; border-radius: 50%; background: var(--ring); }
+.ring.off { background: var(--border); }
+.ring > .av { border: 3px solid var(--bg); }
+.feed { display: flex; flex-direction: column; gap: 4px; max-width: 520px; margin: 0 auto; width: 100%; }
+.post { border-bottom: 1px solid var(--border); padding-bottom: 12px; }
+.post .ph { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+.post .ph b { font-size: 14px; }
+.post .img { width: 100%; display: block; aspect-ratio: 1 / 1; object-fit: cover; background: var(--surface3); }
+.post .acts { display: flex; gap: 4px; padding: 4px 6px 0; }
+.post .acts .icon-btn .ic { width: 26px; height: 26px; }
+.post .acts .liked { color: var(--bad); } .post .acts .liked .ic { fill: currentColor; }
+.post .acts .saved .ic { fill: currentColor; }
+.post .body { padding: 2px 14px; font-size: 14px; }
+.post .body .lk { font-weight: 700; }
+.post .more { color: var(--muted); background: none; border: 0; padding: 2px 0; cursor: pointer; }
+.post .text-only { padding: 26px 18px; font-size: 18px; line-height: 1.4; background: var(--surface2); }
+.btn.follow { background: var(--primary); color: #fff; border-color: var(--primary); }
+.btn.following { background: var(--surface3); border-color: var(--surface3); }
+.prof { padding: 16px; }
+.prof .head { display: flex; gap: 22px; align-items: center; }
+.prof .counts { display: flex; gap: 18px; text-align: center; flex: 1; justify-content: space-around; }
+.prof .counts b { display: block; font-size: 17px; }
+.prof .counts span { font-size: 13px; color: var(--muted); }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; }
+.grid3 .tile { aspect-ratio: 1 / 1; background: var(--surface3) center / cover no-repeat; border: 0; padding: 6px;
+  font-size: 12px; color: var(--text); overflow: hidden; cursor: pointer; text-align: left; }
+.comment { display: flex; gap: 10px; padding: 8px 4px; }
+.compose-img { width: 100%; max-height: 260px; object-fit: contain; border-radius: 12px; background: var(--surface2); }
+.field { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface2); margin-top: 8px; }
+.callrow { align-self: center; display: inline-flex; gap: 8px; align-items: center; background: var(--surface2); border: 1px solid var(--border); border-radius: 18px; padding: 6px 12px; font-size: 13px; color: var(--muted); margin: 4px 0; }
+.callrow.missed { color: var(--bad); }

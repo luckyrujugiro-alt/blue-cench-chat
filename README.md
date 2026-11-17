@@ -28,6 +28,25 @@ Phones, iPads and smartwatches use Blue Cench Chat through a responsive web app 
 
 ---
 
+## 1b. Download
+
+* **PC (Windows 10/11):** https://github.com/luckyrujugiro-alt/blue-cench-chat/releases/latest/download/BlueCenchChat-Setup.exe
+* **Android phone:** https://github.com/luckyrujugiro-alt/blue-cench-chat/releases/latest/download/BlueCenchChat.apk
+* **iPhone / iPad / watch:** on the PC open *Phones & Tablets*, scan the QR code, then *Share > Add to Home Screen*.
+
+Every push to `main` builds a new version (1.1.N) and these links always point at the newest one.
+
+## 1c. Social features (Instagram-style, fully offline)
+
+* **Home feed, posts, likes, comments, saves** - posts (photo + caption + music) go directly to your followers' devices when you meet over Bluetooth or the same Wi-Fi. No server, no cloud.
+* **Notes with music** - a short status above your picture, like Instagram notes.
+* **Follow / followers / following** - real counts, exchanged when devices meet.
+* **Calls** - voice over Bluetooth or Wi-Fi; video needs Wi-Fi/LAN. End-to-end encrypted.
+* **Blue ticks** - the official account `@bluecenchchat` signs verification certificates with its Ed25519 key. Anyone with 40+ followers can request a tick from *My Profile*; the official account approves it on its *Verification* page. A tick is only trusted when the official account's **public** key is listed in `bluecenchchat/verifiers.json` (the private key never leaves that PC). Removals spread device to device.
+* **Light (white) theme by default**, dark with `Ctrl+D`. Press `F1` for all keyboard shortcuts.
+
+**Making @bluecenchchat official:** create the account named `bluecenchchat` in the PC app, open *Verification*, press *Copy verifier key*, paste it into the `keys` list in `bluecenchchat/verifiers.json`, and push. Never put a password or private key in this repository.
+
 ## 2. Phones, tablets and watches
 
 On the PC, open **Phones & Tablets** and switch on *Allow phones and tablets*.
@@ -42,7 +61,7 @@ The layout adapts to the screen:
 * **Phones:** bottom tabs and full-screen chats.
 * **Tablets and desktops:** a navigation rail with list and chat side by side.
 
-**Android app.** `android/` holds a small native app (Kotlin). It listens for the PC's presence beacons on the Wi-Fi, so you just open it and tap your PC. It also pins the PC's HTTPS certificate fingerprint, so there's no browser warning, and it saves received files to *Downloads/Blue Cench Chat*. GitHub Actions builds it as `BlueCenchChat-1.0.0.apk`, attached to the release. Installing it needs Android 10+ and *Install unknown apps* allowed for your browser or file manager. **iPhone/iPad** apps can only be built on a Mac with a paid Apple developer account, so on iOS use the QR code once and then *Add to Home Screen*.
+**Android app.** `android/` holds a small native app (Kotlin). It listens for the PC's presence beacons on the Wi-Fi, so you just open it and tap your PC. It also pins the PC's HTTPS certificate fingerprint, so there's no browser warning, and it saves received files to *Downloads/Blue Cench Chat*. GitHub Actions builds it as `BlueCenchChat.apk`, attached to the release. Installing it needs Android 10+ and *Install unknown apps* allowed for your browser or file manager. **iPhone/iPad** apps can only be built on a Mac with a paid Apple developer account, so on iOS use the QR code once and then *Add to Home Screen*.
 
 **Why the phone doesn't use its own Bluetooth.** Phone browsers can't publish Bluetooth services or open RFCOMM links, and iPhone/iPad browsers have no Bluetooth at all. The PC therefore keeps the Bluetooth and local-network links and the encryption keys. Paired phones act as secure remote screens for the PC's Blue Cench Chat account. A paired device can be removed from the PC at any time and is signed out immediately.
 
@@ -124,14 +143,14 @@ Tests:
 
 ## 6. Build BlueCenchChat.exe and the installer
 
-**Easiest: let GitHub build it.** Push this folder to a GitHub repository. The workflow in `.github/workflows/build-windows.yml` runs on GitHub's Windows servers: it runs the tests, then builds `BlueCenchChat.exe` and `BlueCenchChat-Setup-1.0.0.exe`. Download them from the run's **Artifacts** in the repository's **Actions** tab.
+**Easiest: let GitHub build it.** Push this folder to a GitHub repository. The workflow in `.github/workflows/build.yml` runs on GitHub's Windows servers: it runs the tests, then builds `BlueCenchChat.exe` and `BlueCenchChat-Setup.exe`. Download them from the run's **Artifacts** in the repository's **Actions** tab.
 
 **On your own Windows PC:**
 
 1. Install Python 3.12 or newer (64-bit) and, for the installer, [Inno Setup 6](https://jrsoftware.org/isdl.php).
 2. In PowerShell, from the project folder, run `.\build.ps1`.
 
-The script creates a venv, runs the tests and builds `dist\BlueCenchChat\BlueCenchChat.exe`. If Inno Setup is installed, it also builds `dist\BlueCenchChat-Setup-1.0.0.exe`.
+The script creates a venv, runs the tests and builds `dist\BlueCenchChat\BlueCenchChat.exe`. If Inno Setup is installed, it also builds `dist\BlueCenchChat-Setup.exe`.
 
 The installer provides:
 * Start-menu and optional desktop shortcuts

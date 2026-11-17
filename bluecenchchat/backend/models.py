@@ -55,6 +55,7 @@ class Account(Base):
     is_guest: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
     last_login: Mapped[float] = mapped_column(Float, default=0.0)
+    tick_cert: Mapped[str] = mapped_column(Text, default="")
     settings_json: Mapped[str] = mapped_column(Text, default="{}")
 
     @property
@@ -91,6 +92,16 @@ class Contact(Base):
     last_transport: Mapped[str] = mapped_column(String(16), default="")
     address_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
+    # --- social (Instagram-style) -------------------------------------------
+    i_follow: Mapped[bool] = mapped_column(Boolean, default=False)
+    follows_me: Mapped[bool] = mapped_column(Boolean, default=False)
+    followers_count: Mapped[int] = mapped_column(Integer, default=0)   # as reported by them
+    following_count: Mapped[int] = mapped_column(Integer, default=0)
+    posts_count: Mapped[int] = mapped_column(Integer, default=0)
+    note_text: Mapped[str] = mapped_column(String(80), default="")
+    note_music: Mapped[str] = mapped_column(String(80), default="")
+    note_ts: Mapped[float] = mapped_column(Float, default=0.0)
+    tick_cert: Mapped[str] = mapped_column(Text, default="")            # verified blue-tick certificate
 
     @property
     def address(self) -> dict:
@@ -198,3 +209,77 @@ class WebDevice(Base):
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
     last_seen: Mapped[float] = mapped_column(Float, default=time.time)
     last_ip: Mapped[str] = mapped_column(String(64), default="")
+
+
+class Post(Base):
+    """A photo/text post - our own (author_uid == our id) or one synced from someone we follow."""
+
+    __tablename__ = "posts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
+    author_uid: Mapped[str] = mapped_column(String(20), index=True)
+    caption: Mapped[str] = mapped_column(String(2200), default="")
+    music: Mapped[str] = mapped_column(String(80), default="")
+    image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time, index=True)
+    likes: Mapped[int] = mapped_column(Integer, default=0)
+    comments: Mapped[int] = mapped_column(Integer, default=0)
+    liked: Mapped[bool] = mapped_column(Boolean, default=False)       # liked by me
+    saved: Mapped[bool] = mapped_column(Boolean, default=False)
+    received_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class PostLike(Base):
+    """Who liked one of OUR posts."""
+
+    __tablename__ = "post_likes"
+    __table_args__ = (UniqueConstraint("post_id", "liker_uid"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
+    post_id: Mapped[str] = mapped_column(String(36), index=True)
+    liker_uid: Mapped[str] = mapped_column(String(20))
+    ts: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class PostComment(Base):
+    __tablename__ = "post_comments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
+    post_id: Mapped[str] = mapped_column(String(36), index=True)
+    author_uid: Mapped[str] = mapped_column(String(20))
+    author_name: Mapped[str] = mapped_column(String(80), default="")
+    text: Mapped[str] = mapped_column(String(500))
+    ts: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class TickRequest(Base):
+    """Blue-tick requests received by the official verifier account."""
+
+    __tablename__ = "tick_requests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
+    peer_uid: Mapped[str] = mapped_column(String(20), index=True)
+    name: Mapped[str] = mapped_column(String(80), default="")
+    followers: Mapped[int] = mapped_column(Integer, default=0)
+    message: Mapped[str] = mapped_column(String(300), default="")
+    status: Mapped[str] = mapped_column(String(12), default="pending")  # pending | granted | declined | revoked
+    cert: Mapped[str] = mapped_column(Text, default="")
+    delivered: Mapped[bool] = mapped_column(Boolean, default=False)
+    ts: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class Revocation(Base):
+    """Signed blue-tick revocations seen on the network (gossiped between peers)."""
+
+    __tablename__ = "revocations"
+    __table_args__ = (UniqueConstraint("account_id", "uid"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
+    uid: Mapped[str] = mapped_column(String(20))
+    blob: Mapped[str] = mapped_column(Text)
+    ts: Mapped[float] = mapped_column(Float, default=time.time)

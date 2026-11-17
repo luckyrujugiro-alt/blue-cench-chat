@@ -4,7 +4,21 @@
 const S = {
   me: null, tab: "chats", chat: null, convs: [], msgs: [], replyTo: null, typing: {}, nearby: null,
   transfers: [], tmap: {}, people: "accepted", peopleList: [], notifs: [], q: "", ws: null, contact: null,
+  feed: [], notes: null, profile: null, tab0: "home",
 };
+/* theme: Instagram white by default, dark on request (remembered on this device) */
+function getTheme() { try { return localStorage.getItem("bcc-theme") || "light"; } catch (_) { return "light"; } }
+function applyTheme(t) {
+  document.documentElement.setAttribute("data-theme", t);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", t === "dark" ? "#000000" : "#FFFFFF");
+}
+function toggleTheme() {
+  const t = getTheme() === "dark" ? "light" : "dark";
+  try { localStorage.setItem("bcc-theme", t); } catch (_) { /* private mode */ }
+  applyTheme(t); render();
+}
+applyTheme(getTheme());
 const root = document.getElementById("root");
 const wide = window.matchMedia("(min-width: 760px)");
 const REACTIONS = ["thumbs-up", "heart", "laugh", "party-popper", "check", "flame"];
@@ -47,6 +61,15 @@ async function api(path, opts = {}) {
   return data;
 }
 const post = (p, body) => api(p, { method: "POST", body: body || {} });
+async function postForm(path, form) {
+  const r = await fetch(path, { method: "POST", credentials: "same-origin", headers: { "X-BlueCenchChat": "1" }, body: form });
+  if (r.status === 401) { showPair(); throw new Error("Not paired"); }
+  let data = null;
+  try { data = await r.json(); } catch (_) { /* empty */ }
+  if (!r.ok) throw new Error((data && data.detail) || ("Error " + r.status));
+  return data;
+}
+const tick = (on) => on ? h("span", { class: "tick", title: "Verified" }, icon("badge-check", "sm")) : null;
 function toast(text, tone) {
   const host = document.getElementById("toast-host");
   const ic = { ok: ["circle-check", "ok"], err: ["circle-alert", "bad"], warn: ["triangle-alert", "warn"] }[tone] || ["info", "cyan"];
@@ -137,8 +160,8 @@ function showPair(err) {
 }
 
 /* ------------------------------------------------------------------ shell */
-const TABS = [["chats", "Chats", "message-square"], ["people", "People", "users"], ["nearby", "Nearby", "radar"],
-  ["files", "Files", "arrow-left-right"], ["more", "More", "settings"]];
+const TABS = [["home", "Home", "house"], ["chats", "Chats", "message-square"], ["people", "People", "users"],
+  ["nearby", "Nearby", "radar"], ["files", "Files", "arrow-left-right"], ["more", "Profile", "user"]];
 
 function badgeFor(tab) {
   const m = S.me || {};
@@ -161,7 +184,8 @@ function render() {
     else if (wide.matches) main.append(h("div", { class: "detail" }, h("div", { class: "empty", style: "margin:auto" },
       icon("message-square"), h("div", {}, "Choose a conversation"),
       h("div", { class: "faint" }, "Messages go from this device to your PC over Wi-Fi, then to your contact over Bluetooth or the local network."))));
-  } else if (S.tab === "people") main.append(peopleView());
+  } else if (S.tab === "home") main.append(homeView());
+  else if (S.tab === "people") main.append(peopleView());
   else if (S.tab === "nearby") main.append(nearbyView());
   else if (S.tab === "files") main.append(filesView());
   else main.append(moreView());
@@ -172,7 +196,8 @@ function switchTab(tab) {
   S.tab = tab;
   if (tab !== "chats") S.chat = null;
   render();
-  ({ chats: loadConvs, people: loadPeople, nearby: loadNearby, files: loadTransfers, more: loadNotifs })[tab]();
+  ({ home: loadHome, chats: loadConvs, people: loadPeople, nearby: loadNearby, files: loadTransfers,
+    more: () => { loadNotifs(); loadProfile(); } })[tab]();
 }
 function topbar(title, ...extra) {
   return h("div", { class: "top" }, h("h1", {}, title), ...extra);
@@ -203,7 +228,7 @@ function fillConvs(list) {
     const prev = last ? (last.dir === "out" ? "You: " : "") + (last.kind === "file" ? "File: " : "") + last.body : "No messages yet";
     return h("div", { class: "row" + (S.chat === c.id ? " sel" : ""), onclick: () => openChat(c.id), role: "button" },
       avatar(c, "", c.online),
-      h("div", { class: "grow" }, h("div", { class: "title" }, c.name, c.verified ? h("span", { class: "ok" }, icon("badge-check", "sm")) : null),
+      h("div", { class: "grow" }, h("div", { class: "title" }, c.name, tick(c.tick)),
         h("div", { class: "sub" }, prev.replace(/\n/g, " "))),
       h("div", { class: "meta" }, h("span", { class: "faint" }, last ? ago(last.ts) : ""),
         c.unread ? h("span", { class: "count" }, c.unread) : null));
@@ -238,8 +263,9 @@ function chatView() {
     h("div", { class: "top" },
       h("button", { class: "icon-btn back", onclick: () => history.length > 1 && !wide.matches ? history.back() : closeChat(), "aria-label": "Back" }, icon("chevron-left")),
       avatar(c, "sm", c.online),
-      h("div", { class: "who" }, h("b", {}, c.name, c.verified ? h("span", { class: "ok" }, icon("badge-check", "sm")) : null),
+      h("div", { class: "who" }, h("b", {}, c.name, tick(c.tick), c.verified ? h("span", { class: "ok", title: "Safety number checked" }, icon("shield-check", "sm")) : null),
         h("span", { id: "chat-status" }, status)),
+      h("button", { class: "icon-btn", onclick: () => toast("Calls ring on your PC - answer them in the Blue Cench Chat app there.", "warn"), "aria-label": "Call" }, icon("phone")),
       h("button", { class: "icon-btn", onclick: () => contactSheet(c), "aria-label": "Contact options" }, icon("ellipsis-vertical"))),
     h("div", { class: "msgs", id: "msgs" }, msgNodes()),
     h("div", { class: "typing", id: "typing" }, S.typing[S.chat] ? `${c.name} is typing...` : ""),
@@ -259,6 +285,11 @@ function msgNodes() {
     if (m.kind === "file" && m.transfer_id) {
       const t = S.tmap[m.transfer_id];
       out.push(h("div", { class: "filecard " + m.dir }, t ? tcard(t, true) : h("div", { class: "card" }, icon(fileIcon(m.body)), " ", m.body)));
+      continue;
+    }
+    if (m.kind === "call") {
+      out.push(h("div", { class: "callrow" + (m.body.startsWith("Missed") ? " missed" : "") },
+        icon(m.body.includes("Video") ? "video" : "phone", "sm"), m.body, h("span", { class: "faint" }, new Date(m.ts * 1000).toTimeString().slice(0, 5))));
       continue;
     }
     const quoted = m.reply_to ? S.msgs.find((x) => x.id === m.reply_to) : null;
@@ -373,10 +404,12 @@ function fillPeople(list) {
         h("button", { class: "btn", onclick: () => run(post(`/api/contacts/${c.id}/reject`)).then(loadPeople) }, icon("x"), "Decline"));
     } else if (c.status === "pending_out") acts.push(h("span", { class: "pill blue" }, "Waiting for response"));
     else if (c.status === "accepted") acts.push(h("button", { class: "btn primary", onclick: () => openChat(c.id) }, icon("message-square"), "Message"));
+    if (c.status !== "blocked") acts.push(followBtn(c, loadPeople));
     else if (c.status === "blocked") acts.push(h("button", { class: "btn", onclick: () => run(post(`/api/contacts/${c.id}/unblock`)).then(loadPeople) }, icon("user-check"), "Unblock"));
     return h("div", { class: "card" }, h("div", { class: "row", style: "padding:0;cursor:default" }, avatar(c, "", c.status === "accepted" ? c.online : undefined),
-      h("div", { class: "grow" }, h("div", { class: "title" }, c.name, c.verified ? h("span", { class: "ok" }, icon("badge-check", "sm")) : null),
-        h("div", { class: "sub" }, c.online ? `Online - ${c.transport}` : "@" + c.username))),
+      h("div", { class: "grow", onclick: () => profileSheet(c.id), style: "cursor:pointer" }, h("div", { class: "title" }, c.name, tick(c.tick)),
+        h("div", { class: "sub" }, c.online ? `Online - ${c.transport}` : "@" + c.username),
+        h("div", { class: "faint" }, `${c.followers || 0} followers${c.follows_me ? " · follows you" : ""}`))),
       c.about ? h("div", { class: "faint hide-watch", style: "margin-top:6px" }, c.about) : null,
       h("div", { class: "actions" }, acts));
   }));
@@ -476,11 +509,8 @@ function moreView() {
     h("span", { class: n.read ? "faint" : "cyan" }, icon({ request: "user-plus", accepted: "user-check", file_offer: "download", transfer_done: "circle-check", transfer_failed: "circle-alert", security: "shield-alert", disconnect: "unlink" }[n.kind] || "bell")),
     h("div", { class: "grow" }, h("div", { class: "title" }, n.title), n.body ? h("div", { class: "sub" }, n.body) : null),
     h("span", { class: "faint" }, ago(n.ts))));
-  return h("section", { class: "panel wide" }, topbar("More"), h("div", { class: "scroll cards" },
-    h("div", { class: "card" }, h("div", { class: "row", style: "padding:0;cursor:default" },
-      avatar({ name: m.name || "", uid: m.uid || "" }, "lg"),
-      h("div", { class: "grow" }, h("h3", {}, m.name || ""), h("div", { class: "faint" }, "@" + (m.username || "")), h("div", { class: "mono faint" }, m.uid || ""))),
-      m.about ? h("div", { class: "muted", style: "margin-top:8px" }, m.about) : null),
+  return h("section", { class: "panel wide" }, topbar("Profile"), h("div", { class: "scroll cards" },
+    profileHeader() || h("div", { class: "card" }, h("h3", {}, m.name || ""), h("div", { class: "mono faint" }, m.uid || "")),
     h("div", { class: "card" }, h("h3", {}, "Your PC"),
       status(m.bluetooth === "on", `Bluetooth ${m.bluetooth || ""}`), status(m.ble_advertising, "Discoverable over Bluetooth LE"),
       status(m.rfcomm, "Bluetooth RFCOMM link"), status(m.lan, `Local network ${(m.ips || []).join(", ")}`),
@@ -488,6 +518,138 @@ function moreView() {
     h("div", { class: "card" }, h("h3", {}, "Alerts"), notifs.length ? notifs : h("div", { class: "faint" }, "You're all caught up.")),
     h("div", { class: "card" }, h("h3", {}, "This device"), h("div", { class: "faint" }, `Paired as "${m.device || ""}". It uses your PC's Blue Cench Chat account over Wi-Fi.`),
       h("div", { class: "actions" }, h("button", { class: "btn danger", onclick: () => { if (confirm("Unpair this device?")) run(post("/api/logout")).then(() => showPair()); } }, icon("log-out"), "Unpair this device")))));
+}
+
+/* ------------------------------------------------------------------ home (Instagram-style) */
+function followBtn(c, after) {
+  const on = !!c.i_follow;
+  return h("button", { class: "btn " + (on ? "following" : "follow"),
+    onclick: (e) => { e.stopPropagation(); run(post(`/api/follow/${c.id}`, { on: !on })).then(() => { (after || loadHome)(); }); } },
+    on ? "Following" : (c.follows_me ? "Follow back" : "Follow"));
+}
+function ringAv(c, cls, on) { return h("span", { class: "ring" + (on ? "" : " off") }, avatar(c, cls)); }
+function notesBar() {
+  const n = S.notes || { me: { name: "", text: "", music: "" }, people: [] };
+  const cell = (c, text, music, label, onclick) => h("button", { class: "note", onclick },
+    h("div", { class: "bub" + (text || music ? "" : " empty") }, text || (music ? "♫ " + music : "Note..."), text && music ? h("div", {}, "♫ " + music) : null),
+    ringAv(c, "", !!(text || music)), h("div", { class: "nm" }, label));
+  return h("div", { class: "notes" },
+    cell({ name: n.me.name, uid: S.me?.uid, has_avatar: false }, n.me.text, n.me.music, "Your note", noteSheet),
+    n.people.map((p) => cell(p, p.note, p.music, p.name.split(" ")[0], () => profileSheet(p.id))));
+}
+function postCard(p) {
+  const who = { id: p.author_id, name: p.author, uid: p.uid, has_avatar: false };
+  const like = () => run(post(`/api/posts/${p.id}/like`)).then(loadHome);
+  const img = p.has_image ? h("img", { class: "img", src: `/api/posts/${p.id}/image`, alt: p.caption || "Photo", loading: "lazy",
+    ondblclick: () => { if (!p.liked) like(); } }) : h("div", { class: "text-only" }, p.caption);
+  return h("article", { class: "post" },
+    h("div", { class: "ph" }, avatar(who, "sm"),
+      h("div", { class: "grow", onclick: () => p.author_id && profileSheet(p.author_id), style: "cursor:pointer" },
+        h("b", {}, p.author), tick(p.tick), h("span", { class: "faint" }, " · " + ago(p.ts)),
+        p.music ? h("div", { class: "faint" }, "♫ " + p.music) : null),
+      p.mine ? h("button", { class: "icon-btn", "aria-label": "Post options", onclick: () => sheet((close) => [
+        opt("trash-2", "Delete post", () => { close(); if (confirm("Delete this post?")) run(post(`/api/posts/${p.id}/delete`), "Deleted").then(loadHome); }, "bad")]) }, icon("ellipsis")) : null),
+    img,
+    h("div", { class: "acts" },
+      h("button", { class: "icon-btn" + (p.liked ? " liked" : ""), "aria-label": p.liked ? "Unlike" : "Like", onclick: like }, icon("heart")),
+      h("button", { class: "icon-btn", "aria-label": "Comments", onclick: () => commentsSheet(p) }, icon("message-circle")),
+      h("span", { class: "grow" }),
+      h("button", { class: "icon-btn" + (p.saved ? " saved" : ""), "aria-label": p.saved ? "Unsave" : "Save",
+        onclick: () => run(post(`/api/posts/${p.id}/save`)).then(loadHome) }, icon("bookmark"))),
+    h("div", { class: "body" },
+      p.likes ? h("div", { class: "lk" }, `${p.likes} like${p.likes === 1 ? "" : "s"}`) : null,
+      p.has_image && p.caption ? h("div", {}, h("b", {}, p.author), " ", p.caption) : null,
+      p.comments ? h("button", { class: "more", onclick: () => commentsSheet(p) }, `View all ${p.comments} comment${p.comments === 1 ? "" : "s"}`) : null));
+}
+function homeView() {
+  const feed = S.feed.length ? S.feed.map(postCard) : [h("div", { class: "empty" }, icon("house"),
+    h("div", {}, "Your feed is empty"), h("div", { class: "faint" }, "Follow people in the People tab to see their posts, or share your first post."))];
+  return h("section", { class: "panel wide" }, topbar("Blue Cench Chat",
+    h("button", { class: "icon-btn", "aria-label": "Switch light or dark", onclick: toggleTheme }, icon(getTheme() === "dark" ? "sun" : "moon")),
+    h("button", { class: "icon-btn", "aria-label": "New post", onclick: composeSheet }, icon("square-plus"))),
+    h("div", { class: "scroll" }, notesBar(), h("div", { class: "feed" }, feed)));
+}
+function noteSheet() {
+  const me = (S.notes && S.notes.me) || { text: "", music: "" };
+  const t = h("input", { class: "field", maxlength: "60", placeholder: "Share a thought... (60 characters)", value: me.text });
+  const m = h("input", { class: "field", maxlength: "80", placeholder: "♫ Song - artist (optional)", value: me.music });
+  sheet((close) => [h("h3", {}, "Your note"), h("div", { class: "faint" }, "Your followers and people nearby see it above your photo."), t, m,
+    h("div", { class: "actions" },
+      h("button", { class: "btn", onclick: () => { close(); run(post("/api/note", { text: "", music: "" })).then(loadHome); } }, "Delete"),
+      h("button", { class: "btn primary", onclick: () => { close(); run(post("/api/note", { text: t.value, music: m.value }), "Note shared").then(loadHome); } }, "Share"))]);
+  setTimeout(() => t.focus(), 50);
+}
+function composeSheet() {
+  let file = null;
+  const preview = h("img", { class: "compose-img hidden", alt: "" });
+  const pick = h("input", { type: "file", accept: "image/*", class: "hidden", onchange: (e) => {
+    file = e.target.files[0] || null;
+    if (file) { preview.src = URL.createObjectURL(file); preview.classList.remove("hidden"); }
+  } });
+  const cap = h("textarea", { class: "field", rows: "3", maxlength: "2200", placeholder: "Write a caption..." });
+  const mus = h("input", { class: "field", maxlength: "80", placeholder: "♫ Add music: song - artist (optional)" });
+  sheet((close) => [h("h3", {}, "New post"), preview, pick,
+    h("button", { class: "btn block", onclick: () => pick.click() }, icon("image-plus"), "Choose photo"), cap, mus,
+    h("div", { class: "actions" }, h("button", { class: "btn primary", onclick: () => {
+      if (!file && !cap.value.trim()) { toast("Add a photo or write a caption", "warn"); return; }
+      const fd = new FormData(); fd.append("caption", cap.value); fd.append("music", mus.value);
+      if (file) fd.append("image", file);
+      close(); toast("Sharing...");
+      run(postForm("/api/posts", fd), "Shared").then(loadHome);
+    } }, icon("send"), "Share"))]);
+}
+async function commentsSheet(p) {
+  let list = [];
+  try { list = await api(`/api/posts/${p.id}/comments`); } catch (_) { /* */ }
+  const box = h("input", { class: "field", maxlength: "500", placeholder: "Add a comment..." });
+  const submit = (close) => { const t = box.value.trim(); if (!t) return; close(); run(post(`/api/posts/${p.id}/comments`, { text: t })).then(() => { loadHome(); commentsSheet(p); }); };
+  sheet((close) => [h("h3", {}, "Comments"),
+    list.length ? list.map((c) => h("div", { class: "comment" }, avatar({ name: c.name, uid: c.uid }, "sm"),
+      h("div", {}, h("b", {}, c.name), " ", c.text, h("div", { class: "faint" }, ago(c.ts))))) : h("div", { class: "faint" }, "No comments yet."),
+    box, h("div", { class: "actions" }, h("button", { class: "btn primary", onclick: () => submit(close) }, "Post"))]);
+  box.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(() => document.getElementById("sheet-host").replaceChildren()); });
+}
+function grid(posts) {
+  return h("div", { class: "grid3" }, posts.map((p) => {
+    const t = h("button", { class: "tile", "aria-label": p.caption || "Post", onclick: () => sheet(() => [postCard(p)]) }, p.has_image ? "" : p.caption.slice(0, 80));
+    if (p.has_image) t.style.backgroundImage = `url(/api/posts/${p.id}/image)`;
+    return t;
+  }));
+}
+async function profileSheet(cid) {
+  let c;
+  try { c = await api(`/api/profile/${cid}`); } catch (e) { toast(e.message, "err"); return; }
+  sheet((close) => [h("div", { class: "prof" },
+    h("div", { class: "head" }, ringAv(c, "lg", !!(c.note || c.music)),
+      h("div", { class: "counts" }, h("div", {}, h("b", {}, c.posts || 0), h("span", {}, "posts")),
+        h("div", {}, h("b", {}, c.followers || 0), h("span", {}, "followers")), h("div", {}, h("b", {}, c.following || 0), h("span", {}, "following")))),
+    h("h3", {}, c.name, tick(c.tick)), h("div", { class: "faint" }, "@" + c.username + (c.follows_me ? " · follows you" : "")),
+    c.about ? h("div", {}, c.about) : null,
+    c.note || c.music ? h("div", { class: "muted" }, "Note: " + (c.note || "") + (c.music ? "  ♫ " + c.music : "")) : null,
+    h("div", { class: "actions" }, c.status !== "blocked" ? followBtn(c, () => { close(); profileSheet(cid); loadHome(); }) : null,
+      c.status === "accepted" ? h("button", { class: "btn", onclick: () => { close(); openChat(c.id); } }, icon("message-square"), "Message") : null)),
+    c.posts_list.length ? grid(c.posts_list) : h("div", { class: "faint", style: "padding:0 16px 16px" }, c.i_follow ? "No posts yet." : "Follow to see their posts.")]);
+}
+function profileHeader() {
+  const p = S.profile;
+  if (!p) return null;
+  const canAsk = p.followers >= p.need;
+  return h("div", { class: "card prof" },
+    h("div", { class: "head" }, ringAv({ name: p.name, uid: p.uid }, "lg", !!(p.note.text || p.note.music)),
+      h("div", { class: "counts" }, h("div", {}, h("b", {}, p.posts), h("span", {}, "posts")),
+        h("div", {}, h("b", {}, p.followers), h("span", {}, "followers")), h("div", {}, h("b", {}, p.following), h("span", {}, "following")))),
+    h("h3", {}, p.username, tick(p.tick)), h("div", {}, p.name), p.about ? h("div", { class: "muted" }, p.about) : null,
+    p.note.text || p.note.music ? h("div", { class: "faint" }, "Note: " + p.note.text + (p.note.music ? "  ♫ " + p.note.music : "")) : null,
+    h("div", { class: "actions" },
+      h("button", { class: "btn", onclick: noteSheet }, icon("music"), "Edit note"),
+      h("button", { class: "btn", onclick: composeSheet }, icon("square-plus"), "New post"),
+      h("button", { class: "btn", onclick: toggleTheme }, icon(getTheme() === "dark" ? "sun" : "moon"), getTheme() === "dark" ? "Light mode" : "Dark mode")),
+    p.tick ? null : p.tick_requested ? h("div", { class: "faint" }, "Blue tick requested - waiting for review.")
+      : h("div", { class: "actions" }, h("button", { class: "btn " + (canAsk ? "follow" : ""), disabled: !canAsk,
+        onclick: () => run(post("/api/tick/request", { message: "" })).then((r) => { if (r) toast(r.message, "ok"); loadProfile(); }) },
+        icon("badge-check"), "Request blue tick"), canAsk ? null : h("span", { class: "faint" }, `${p.followers}/${p.need} followers needed`)),
+    p.admin ? h("div", { class: "faint" }, "Give and remove blue ticks from the Verification page in the PC app.") : null,
+    p.posts_list.length ? grid(p.posts_list) : null);
 }
 
 /* ------------------------------------------------------------------ data loading */
@@ -499,6 +661,14 @@ async function loadMe() {
     if (n && !el) { el = h("span", { class: "badge" }); b.append(el); }
     if (el) { if (n) el.textContent = n > 99 ? "99+" : n; else el.remove(); }
   });
+  if (S.tab === "more") render();
+}
+async function loadHome() {
+  try { [S.feed, S.notes] = await Promise.all([api("/api/feed"), api("/api/notes")]); } catch (_) { return; }
+  if (S.tab === "home") render();
+}
+async function loadProfile() {
+  try { S.profile = await api("/api/profile"); } catch (_) { return; }
   if (S.tab === "more") render();
 }
 async function loadConvs() {
@@ -540,7 +710,7 @@ async function loadNotifs() {
 const later = {
   convs: debounce(loadConvs, 250), msgs: debounce(loadMsgs, 120), me: debounce(loadMe, 400), people: debounce(loadPeople, 300),
   nearby: debounce(loadNearby, 700), files: debounce(() => loadTransfers(true), 400), notifs: debounce(loadNotifs, 400),
-  contact: debounce(loadContact, 300),
+  contact: debounce(loadContact, 300), home: debounce(loadHome, 300), profile: debounce(loadProfile, 400),
 };
 function connectWs() {
   const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/ws");
@@ -570,6 +740,7 @@ function connectWs() {
         }
         break;
       case "status": later.me(); break;
+      case "social": if (S.tab === "home") later.home(); if (S.tab === "more") later.profile(); if (S.tab === "people") later.people(); break;
       default: break;
     }
   };
@@ -596,7 +767,8 @@ async function start() {
   }
   if (!s.paired) { showPair(); return; }
   await loadMe();
-  await Promise.all([loadConvs(), loadTransfers(true)]);
+  S.tab = "home";
+  await Promise.all([loadConvs(), loadTransfers(true), loadHome()]);
   render();
   connectWs();
 }

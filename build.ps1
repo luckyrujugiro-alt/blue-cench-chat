@@ -21,7 +21,7 @@ $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\I
 if ($iscc) {
     Write-Host "`n== Building installer ==" -ForegroundColor Cyan
     & $iscc installer\bluecenchchat.iss
-    Write-Host "Installer: dist\BlueCenchChat-Setup-1.0.0.exe"
+    Write-Host "Installer: dist\BlueCenchChat-Setup.exe"
 } else {
     Write-Host "`nInno Setup 6 was not found. Install it from https://jrsoftware.org/isdl.php and run this script again to get the installer." -ForegroundColor Yellow
 }

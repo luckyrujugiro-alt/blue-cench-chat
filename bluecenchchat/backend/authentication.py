@@ -123,7 +123,7 @@ class RegistrationData(BaseModel):
 
 
 DEFAULT_SETTINGS = {
-    "theme": "dark",
+    "theme": "light",
     "font_scale": 100,
     "visible": True,
     "lan_enabled": True,
@@ -144,6 +144,11 @@ DEFAULT_SETTINGS = {
     "reduce_motion": False,
     "web_enabled": False,
     "web_port": 8765,
+    "note_text": "",
+    "note_music": "",
+    "note_ts": 0,
+    "tick_request": "",
+    "tick_request_sent": False,
 }
 
 

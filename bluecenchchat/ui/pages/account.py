@@ -136,9 +136,14 @@ class ProfilePage(Page):
         super().__init__("My Profile", "How you appear to people you connect with.")
         self.win, self.node, self.bridge = win, win.node, win.bridge
         p = theme.palette()
+        # Instagram-style header + posts grid (rebuilt on every social change)
+        self.ig = QVBoxLayout()
+        self.ig.setSpacing(14)
+        self.content.addLayout(self.ig)
+        self.bridge.social_changed.connect(lambda: self.isVisible() and self._build_header())
         row = QHBoxLayout()
         row.setSpacing(14)
-        form = Card("Profile details", "user")
+        form = Card("Edit profile", "user")
         top = QHBoxLayout()
         self.avatar = Avatar(84)
         top.addWidget(self.avatar)
@@ -196,7 +201,71 @@ class ProfilePage(Page):
     def on_show(self) -> None:
         self.load()
 
+    def _build_header(self) -> None:
+        from ...core import verification as vf
+        from ..components.social import PostsGrid, counts_row, edit_note_dialog, name_line, ring_avatar
+
+        clear_layout(self.ig)
+        node, win = self.node, self.win
+        acc = node.repo.account()
+        st = node.social.stats()
+        note = node.social.note()
+        head = QHBoxLayout()
+        head.setSpacing(28)
+        head.addWidget(ring_avatar(acc.display_name, acc.avatar, 110, acc.user_id, ring=bool(note["text"] or note["music"])))
+        col = QVBoxLayout()
+        col.setSpacing(10)
+        top = QHBoxLayout()
+        top.addWidget(name_line(acc.username, node.social.is_verified_me(), "h2"))
+        new_post = button("New post", "square-plus", "primary")
+        from ..components.social import CreatePostDialog
+        new_post.clicked.connect(lambda: CreatePostDialog(win).exec())
+        nb = button("Edit note", "music")
+        nb.clicked.connect(lambda: edit_note_dialog(win))
+        top.addWidget(nb)
+        top.addWidget(new_post)
+        col.addLayout(top)
+        col.addLayout(counts_row(st["posts"], st["followers"], st["following"]))
+        nm = label(acc.display_name, "h3")
+        nm.setTextFormat(Qt.TextFormat.PlainText)
+        col.addWidget(nm)
+        if acc.about:
+            ab = label(acc.about, wrap=True)
+            ab.setTextFormat(Qt.TextFormat.PlainText)
+            col.addWidget(ab)
+        if note["text"] or note["music"]:
+            nt = label("Note: " + note["text"] + (f"   ♫ {note['music']}" if note["music"] else ""), "muted", wrap=True)
+            nt.setTextFormat(Qt.TextFormat.PlainText)
+            col.addWidget(nt)
+        # blue tick status / request
+        tick = QHBoxLayout()
+        if node.social.is_verified_me():
+            tick.addWidget(label("Your account is verified.", "success"))
+        elif node.settings.get("tick_request"):
+            tick.addWidget(label("Blue tick requested - " + ("delivered, waiting for review."
+                                 if node.settings.get("tick_request_sent") else
+                                 "it will be delivered when you meet the official account."), "muted", wrap=True), 1)
+        else:
+            need = vf.MIN_FOLLOWERS_FOR_REQUEST
+            req = button("Request blue tick", "badge-check", "follow" if st["followers"] >= need else None)
+            req.setEnabled(st["followers"] >= need)
+            req.setToolTip(f"Available at {need} followers (you have {st['followers']})")
+            req.clicked.connect(lambda: win.bridge.run(node.social.request_tick(), lambda m: win.toast(m, "success")))
+            tick.addWidget(req)
+            if st["followers"] < need:
+                tick.addWidget(label(f"{st['followers']}/{need} followers needed", "faint"))
+        tick.addStretch(1)
+        col.addLayout(tick)
+        head.addLayout(col, 1)
+        self.ig.addLayout(head)
+        posts = node.social.posts_by(acc.user_id)
+        if posts:
+            self.ig.addWidget(PostsGrid(win, posts, cell=200), 0, Qt.AlignmentFlag.AlignLeft)
+        else:
+            self.ig.addWidget(label("No posts yet. Share your first photo with New post (Ctrl+P).", "muted"))
+
     def load(self) -> None:
+        self._build_header()
         acc = self.node.repo.account()
         self._avatar_bytes = acc.avatar
         self.avatar.set(acc.display_name, acc.avatar)
@@ -432,10 +501,10 @@ class SettingsPage(Page):
 
         app = Card("Appearance & accessibility", "sun")
         self.theme = QComboBox()
-        self.theme.addItems(["Dark", "Light"])
-        self.theme.setCurrentIndex(1 if s.get("theme") == "light" else 0)
+        self.theme.addItems(["Light", "Dark"])
+        self.theme.setCurrentIndex(1 if s.get("theme") == "dark" else 0)
         self.theme.currentIndexChanged.connect(self._theme)
-        app.add(SettingRow("Theme", "Dark is the default Blue Cench Chat look.", self.theme))
+        app.add(SettingRow("Appearance", "Light like Instagram, or Dark for night use. Shortcut: Ctrl+D.", self.theme))
         self.scale = QComboBox()
         for v in (90, 100, 115, 130):
             self.scale.addItem(f"{v}%", v)
@@ -500,7 +569,7 @@ class SettingsPage(Page):
         self.content.addStretch(1)
 
     def _theme(self) -> None:
-        self.node.update_settings(theme="light" if self.theme.currentIndex() == 1 else "dark",
+        self.node.update_settings(theme="dark" if self.theme.currentIndex() == 1 else "light",
                                   font_scale=self.scale.currentData())
         self.win.apply_theme(rebuild=True)
 
@@ -540,6 +609,17 @@ class SettingsPage(Page):
 
 # --------------------------------------------------------------------------- help
 FAQ = [
+    ("How do calls work?",
+     "Open a chat and press the phone button (voice) or the camera button (video). Voice calls work over Bluetooth "
+     "and Wi-Fi. Video needs both PCs on the same Wi-Fi or LAN, because Bluetooth is too slow for video. Calls are "
+     "end-to-end encrypted like messages. Phones can't take calls yet - they ring on the PC."),
+    ("How do I get a blue tick?",
+     "Once you have 40 followers, open My Profile and press Request blue tick. The request reaches the official "
+     "@bluecenchchat account the next time your devices meet, and they approve it from their Verification page. "
+     "Ticks are cryptographically signed, so they can't be faked."),
+    ("Where do posts and notes go?",
+     "There is no server. Posts, notes, likes and comments travel directly between devices - your followers "
+     "receive them when you're connected over Bluetooth or the same Wi-Fi."),
     ("Nobody shows up in Discover People",
      "Both PCs need Blue Cench Chat open with visibility on. Bluetooth LE discovery needs adapters that can advertise "
      "(check Bluetooth Devices > Run compatibility test). On a shared network, presence beacons work even without "
@@ -585,6 +665,16 @@ class HelpPage(Page):
         tour.clicked.connect(win.show_onboarding)
         start.add(tour)
         self.content.addWidget(start)
+        keys = Card("Keyboard shortcuts", "keyboard")
+        from PySide6.QtWidgets import QGridLayout
+        g = QGridLayout()
+        g.setHorizontalSpacing(24)
+        for i, (k, what) in enumerate(win.SHORTCUTS):
+            g.addWidget(label(k, "mono"), i, 0)
+            g.addWidget(label(what, "muted"), i, 1)
+        g.setColumnStretch(1, 1)
+        keys.add(g)
+        self.content.addWidget(keys)
         faq = Card("Troubleshooting", "circle-help")
         for q, a in FAQ:
             faq.add(label(q, "h3"))
@@ -602,6 +692,10 @@ class HelpPage(Page):
         data.clicked.connect(lambda: system.open_path(config.data_dir()))
         r.addWidget(logs)
         r.addWidget(data)
+        from ...core import updates
+        upd = button("Download update", "download", "primary", "Opens the latest installer on GitHub")
+        upd.clicked.connect(lambda: __import__("webbrowser").open(updates.SETUP_URL))
+        r.addWidget(upd)
         r.addStretch(1)
         about.add(r)
         self.content.addWidget(about)
