@@ -343,6 +343,8 @@ class ChatView(QWidget):
             pass
         elif s:
             self.status.setText(f"Online  |  {c.peer_user_id}")
+        elif self.node.cloud.can_reach(c):
+            self.status.setText(f"Over the internet  |  last active {human_time(c.last_seen)}")
         else:
             self.status.setText(f"Offline - last seen {human_time(c.last_seen)}")
         if s:
@@ -355,6 +357,8 @@ class ChatView(QWidget):
         self.send_btn.setEnabled(accepted)
         if not accepted:
             self.notice.setText("You can message this person once your connection request is accepted.")
+        elif not s and self.node.cloud.can_reach(c):
+            self.notice.setText("")
         elif not s:
             self.notice.setText("Offline - messages are queued and delivered automatically when you reconnect.")
         else:

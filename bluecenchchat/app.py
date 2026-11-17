@@ -77,6 +77,11 @@ class AppController:
             await self.node.start()
         except Exception:
             log.exception("engine start failed")
+        pw = getattr(self.auth_window, "last_password", None) if self.auth_window else None
+        if self.auth_window is not None:
+            self.auth_window.last_password = None
+        if not guest:
+            asyncio.ensure_future(self.node.cloud.start(pw or None))
         self.window = MainWindow(self.node, guest)
         self.window.sign_out_requested.connect(lambda: asyncio.ensure_future(self.sign_out()))
         self.window.quit_requested.connect(lambda: asyncio.ensure_future(self.quit()))

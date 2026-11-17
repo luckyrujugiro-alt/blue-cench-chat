@@ -36,6 +36,14 @@ Phones, iPads and smartwatches use Blue Cench Chat through a responsive web app 
 
 Every push to `main` builds a new version (1.1.N) and these links always point at the newest one.
 
+## 1b2. Online mode (Firebase)
+
+*Everyone* lists every Blue Cench Chat user who is online, so you can follow and text people anywhere. Nearby people still work with no internet (Discover People has **Wi-Fi** and **Bluetooth** connect buttons and *Request everyone on this Wi-Fi*).
+
+* Your app account's email + password also sign you in online the first time; after that a saved session is used.
+* Firebase Realtime Database stores only public profiles (`/users`) and sealed envelopes (`/mailbox`). Each envelope is X25519 + ChaCha20-Poly1305 encrypted to the recipient and Ed25519-signed by the sender, then deleted on delivery.
+* Setup: `bluecenchchat/cloud.json` holds the public web config (`apiKey`, `databaseURL`); the access rules are in `firebase/database.rules.json`. Calls still need you to be nearby.
+
 ## 1c. Social features (Instagram-style, fully offline)
 
 * **Home feed, posts, likes, comments, saves** - posts (photo + caption + music) go directly to your followers' devices when you meet over Bluetooth or the same Wi-Fi. No server, no cloud.

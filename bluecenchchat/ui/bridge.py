@@ -32,6 +32,7 @@ class Bridge(QObject):
     web_changed = Signal()
     social_changed = Signal()
     call_changed = Signal(object)
+    cloud_changed = Signal()
     error = Signal(str)
     info = Signal(str, str)  # text, tone
 
@@ -54,6 +55,7 @@ class Bridge(QObject):
         sub("web", self.web_changed.emit)
         sub("social", self.social_changed.emit)
         sub("call", self.call_changed.emit)
+        sub("cloud", self.cloud_changed.emit)
 
     def _sub(self, event: str, cb) -> None:
         self.node.bus.on(event, cb)

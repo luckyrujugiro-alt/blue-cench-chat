@@ -609,6 +609,10 @@ class SettingsPage(Page):
 
 # --------------------------------------------------------------------------- help
 FAQ = [
+    ("Can I text people who are far away?",
+     "Yes - open Everyone. While you're online, every Blue Cench Chat user appears there and you can follow and "
+     "message them over the internet. Messages are end-to-end encrypted: the online database only ever holds sealed "
+     "envelopes, deleted as soon as they arrive. People nearby still work with no internet over Bluetooth or Wi-Fi."),
     ("How do calls work?",
      "Open a chat and press the phone button (voice) or the camera button (video). Voice calls work over Bluetooth "
      "and Wi-Fi. Video needs both PCs on the same Wi-Fi or LAN, because Bluetooth is too slow for video. Calls are "

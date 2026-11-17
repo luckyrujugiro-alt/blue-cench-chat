@@ -273,11 +273,13 @@ class EmptyState(QWidget):
         lay.addWidget(t)
         d = label(text, "muted", wrap=True)
         d.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        d.setMaximumWidth(420)
+        d.setFixedWidth(420)  # fixed width lets the wrapped text report its real height (no overlap)
         lay.addWidget(d, 0, Qt.AlignmentFlag.AlignHCenter)
         if action:
             lay.addSpacing(6)
             lay.addWidget(action, 0, Qt.AlignmentFlag.AlignHCenter)
+        d.setMinimumHeight(d.heightForWidth(420))
+        self.setMinimumHeight(lay.sizeHint().height())
 
 
 # --------------------------------------------------------------------------- avatar

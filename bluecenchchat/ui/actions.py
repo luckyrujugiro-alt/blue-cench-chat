@@ -7,19 +7,26 @@ from . import icons
 from .dialogs.common import ConnectDialog, VerifyDialog, ask_text, confirm
 
 
-def connect_peer(win, peer) -> None:
-    """Connect to a discovered peer and, if needed, send a connection request."""
+def connect_peer(win, peer, via: str | None = None) -> None:
+    """Connect to a discovered peer and, if needed, send a connection request.
+
+    via: "lan" (same Wi-Fi), "bt" (Bluetooth) or None (best available)."""
     node, bridge = win.node, win.bridge
     lan = (peer.lan_ip, peer.lan_port) if peer.lan_ip and peer.lan_port else None
-    if not lan and not peer.bt_addr:
-        win.toast("This device is not reachable yet. Keep scanning.", "warning")
+    bt = peer.bt_addr
+    if via == "lan":
+        bt = None
+    elif via == "bt":
+        lan = None
+    if not lan and not bt:
+        win.toast("Not reachable that way yet. Keep scanning, or try the other button.", "warning")
         return
     prefer = "lan" if lan else "rfcomm"
     via = "local network" if lan else "Bluetooth RFCOMM"
     win.toast(f"Connecting to {peer.display_name()} over {via}...")
 
     async def go():
-        cid = await node.connections.connect(lan=lan, bt_addr=peer.bt_addr, prefer=prefer,
+        cid = await node.connections.connect(lan=lan, bt_addr=bt, prefer=prefer,
                                              expect_user_id=peer.user_id or None)
         c = node.repo.contact(cid)
         if c.status != "accepted":

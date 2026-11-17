@@ -262,6 +262,7 @@ class AuthWindow(QWidget):
                 self.si_password.selectAll()
                 return
             acc, ident = t.result()
+            self.last_password = pw  # handed to the online service once, never stored
             self.si_password.clear()
             self.authenticated.emit(acc.id, ident, False, self.si_remember.isChecked())
 
@@ -345,6 +346,7 @@ class AuthWindow(QWidget):
             self.rg_pw.clear()
             self.rg_pw2.clear()
             self._pending_rk = (acc.id, ident)
+            self.last_password = data.password
             self.rk_value.setText(rk)
             self.rk_uid.setText(acc.user_id)
             self.rk_ack.setChecked(False)
@@ -432,6 +434,7 @@ class AuthWindow(QWidget):
             for w in (self.fg_key, self.fg_pw, self.fg_pw2):
                 w.clear()
             self._pending_rk = (acc.id, ident)
+            self.last_password = ""
             self.rk_value.setText(new_rk)
             self.rk_uid.setText(acc.user_id)
             self.rk_ack.setChecked(False)

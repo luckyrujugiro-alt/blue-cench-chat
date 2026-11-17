@@ -68,6 +68,9 @@ class BlueCenchChatNode:
         self.transfers = TransferEngine(self)
         self.social = SocialService(self)
         self.calls = CallManager(self)
+        from .cloud import CloudService
+
+        self.cloud = CloudService(self)
         self.lan = LanTransport(self.connections.handle_incoming, self.discovery.on_lan_beacon, beacon_port)
         self.rfcomm = RfcommTransport(self.connections.handle_incoming)
         self.ble = BleBeacon(self.discovery.on_ble_sighting)
@@ -102,6 +105,7 @@ class BlueCenchChatNode:
         self.bus.emit("status")
 
     async def stop(self) -> None:
+        await self.cloud.stop()
         await self.web.stop()
         self.ble.stop()
         await self.discovery.stop()

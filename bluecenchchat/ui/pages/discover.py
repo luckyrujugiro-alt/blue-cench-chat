@@ -96,13 +96,25 @@ class PeerCard(QFrame):
         lay.addLayout(info)
 
         row = QHBoxLayout()
+        has_lan, has_bt = "lan" in peer.transports, "rfcomm" in peer.transports
         if contact and contact.status == "accepted":
             if online:
                 b = button("Open chat", "message-square", "primary")
                 b.clicked.connect(lambda: win.open_chat(contact.id))
             else:
-                b = button("Connect", "link", "primary")
-                b.clicked.connect(lambda: actions.connect_peer(win, peer))
+                b = None
+                if has_lan:
+                    w = button("Wi-Fi", "wifi", "primary", "Connect over the same Wi-Fi / LAN (fastest)")
+                    w.clicked.connect(lambda: actions.connect_peer(win, peer, "lan"))
+                    row.addWidget(w, 1)
+                if has_bt:
+                    bb = button("Bluetooth", "bluetooth", "primary" if not has_lan else None,
+                                "Connect over Bluetooth (works without Wi-Fi)")
+                    bb.clicked.connect(lambda: actions.connect_peer(win, peer, "bt"))
+                    row.addWidget(bb, 1)
+                if not (has_lan or has_bt):
+                    b = button("Connect", "link", "primary")
+                    b.setEnabled(False)
         elif contact and contact.status == "pending_in":
             b = button("Review request", "user-plus", "primary")
             b.clicked.connect(lambda: win.navigate("connections"))
@@ -113,10 +125,22 @@ class PeerCard(QFrame):
             b = button("Resend request", "user-plus")
             b.clicked.connect(lambda: actions.connect_peer(win, peer))
         else:
-            b = button("Connect", "user-plus", "primary")
-            b.clicked.connect(lambda: actions.connect_peer(win, peer))
-        b.setEnabled(b.isEnabled() and bool(peer.transports))
-        row.addWidget(b, 1)
+            b = None
+            if has_lan:
+                w = button("Request on Wi-Fi", "wifi", "primary", "Send a connection request over the same Wi-Fi / LAN")
+                w.clicked.connect(lambda: actions.connect_peer(win, peer, "lan"))
+                row.addWidget(w, 1)
+            if has_bt:
+                bb = button("Bluetooth", "bluetooth", None if has_lan else "primary",
+                            "Send a connection request over Bluetooth")
+                bb.clicked.connect(lambda: actions.connect_peer(win, peer, "bt"))
+                row.addWidget(bb, 1 if not has_lan else 0)
+            if not (has_lan or has_bt):
+                b = button("Connect", "user-plus", "primary")
+                b.setEnabled(False)
+        if b is not None:
+            b.setEnabled(b.isEnabled() and bool(peer.transports))
+            row.addWidget(b, 1)
         lay.addLayout(row)
 
 
@@ -152,6 +176,20 @@ class DiscoverPage(Page):
         status.add(sl)
         self.content.addWidget(status)
 
+        from PySide6.QtWidgets import QTabBar
+        fbar = QHBoxLayout()
+        self.filter = QTabBar()
+        for t in ("Everyone nearby", "Same Wi-Fi", "Bluetooth"):
+            self.filter.addTab(t)
+        self.filter.currentChanged.connect(lambda _i: self.refresh())
+        fbar.addWidget(self.filter)
+        fbar.addStretch(1)
+        self.req_all = button("Request everyone on this Wi-Fi", "users", None,
+                              "Send a connection request to every new person on your Wi-Fi")
+        self.req_all.clicked.connect(self._request_all_wifi)
+        fbar.addWidget(self.req_all)
+        self.content.addLayout(fbar)
+
         self.grid_host = QWidget()
         self.grid = QGridLayout(self.grid_host)
         self.grid.setContentsMargins(0, 0, 0, 0)
@@ -179,6 +217,24 @@ class DiscoverPage(Page):
         if cols != self._cols:
             self._cols = cols
             self.refresh()
+
+    def _new_on_wifi(self) -> list:
+        out = []
+        for peer in self.node.discovery.list():
+            if "lan" not in peer.transports:
+                continue
+            c = self.node.repo.contact_by_peer(peer.user_id) if peer.user_id else None
+            if c is None or c.status in ("stranger", "rejected"):
+                out.append(peer)
+        return out
+
+    def _request_all_wifi(self) -> None:
+        new = self._new_on_wifi()
+        if not new:
+            self.win.toast("No new people on your Wi-Fi right now", "info")
+            return
+        for peer in new:
+            actions.connect_peer(self.win, peer, "lan")
 
     def _toggle_scan(self) -> None:
         d = self.node.discovery
@@ -231,6 +287,17 @@ class DiscoverPage(Page):
         if not st["visible"]:
             ch(False, "You are hidden. Others cannot discover you (turn visibility on in Security & Privacy).", warn=True)
 
+        allp = peers
+        tab = self.filter.currentIndex()
+        if tab == 1:
+            peers = [x for x in peers if "lan" in x.transports]
+        elif tab == 2:
+            peers = [x for x in peers if x.bt_addr or "ble" in x.sources or "rfcomm" in x.transports]
+        self.filter.setTabText(1, f"Same Wi-Fi ({sum('lan' in x.transports for x in allp)})")
+        self.filter.setTabText(2, f"Bluetooth ({sum(bool(x.bt_addr or 'ble' in x.sources) for x in allp)})")
+        n_new = len(self._new_on_wifi())
+        self.req_all.setEnabled(n_new > 0)
+        self.req_all.setText(f"Request everyone on this Wi-Fi ({n_new})" if n_new else "Request everyone on this Wi-Fi")
         clear_layout(self.grid)
         if not peers:
             self.grid.addWidget(EmptyState(

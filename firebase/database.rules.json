@@ -1,0 +1,26 @@
+{
+  "rules": {
+    "users": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "!newData.exists() || newData.hasChildren(['name', 'uid', 'pub', 'xpub'])",
+        "name": { ".validate": "newData.isString() && newData.val().length <= 80" },
+        "username": { ".validate": "newData.isString() && newData.val().length <= 40" },
+        "about": { ".validate": "newData.isString() && newData.val().length <= 280" },
+        "avatar": { ".validate": "newData.isString() && newData.val().length <= 40000" },
+        "tick": { ".validate": "newData.isString() && newData.val().length <= 4000" }
+      }
+    },
+    "mailbox": {
+      "$to": {
+        ".read": "auth != null && auth.uid === $to",
+        "$msg": {
+          ".write": "auth != null && ((!data.exists() && newData.child('f').val() === auth.uid) || (auth.uid === $to && !newData.exists()))",
+          ".validate": "newData.hasChildren(['f', 'e', 'n', 'c', 't']) && newData.child('c').isString() && newData.child('c').val().length < 2200000 && newData.child('t').val() <= now"
+        }
+      }
+    },
+    "$other": { ".read": false, ".write": false }
+  }
+}

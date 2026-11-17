@@ -475,6 +475,36 @@ def create_app(comp: WebCompanion) -> FastAPI:
             raise HTTPException(404)
         return _post(node, node.social.post(pid))
 
+    @app.get("/api/everyone")
+    async def everyone(q: str = "", dev=auth):
+        cloud = node.cloud
+        if not cloud.online:
+            return {"online": False, "status": cloud.status, "error": cloud.error, "people": []}
+        q = q.strip().lower().lstrip("@")[:40]
+        out = []
+        for p in await cloud.directory():
+            if q and q not in p.get("name", "").lower() and q not in p.get("username", "").lower():
+                continue
+            c = node.repo.contact_by_peer(p["uid"])
+            out.append({"fuid": p["fuid"], "name": p.get("name", ""), "username": p.get("username", ""),
+                        "about": p.get("about", ""), "followers": p.get("followers", 0),
+                        "following": p.get("following", 0), "posts": p.get("posts", 0), "note": p.get("note", ""),
+                        "online": cloud.is_recent(p), "id": c.id if c else None,
+                        "i_follow": bool(c and c.i_follow), "follows_me": bool(c and c.follows_me),
+                        "blocked": bool(c and c.status == "blocked"), "uid": p["uid"],
+                        "tick": bool(c and node.social.is_verified(c))})
+        return {"online": True, "status": "online", "people": out[:300]}
+
+    @app.post("/api/everyone/{fuid}/open")
+    async def everyone_open(fuid: str, dev=auth):
+        if not node.cloud.online or len(fuid) > 128:
+            raise HTTPException(409, "You're offline - turn on online mode on the PC")
+        try:
+            cid = await node.cloud.open_person(fuid)
+        except Exception as exc:
+            raise HTTPException(404, str(exc))
+        return {"id": cid}
+
     @app.get("/api/profile")
     async def my_profile(dev=auth):
         from ..core import verification as vf
@@ -551,7 +581,7 @@ def create_app(comp: WebCompanion) -> FastAPI:
             return cb
 
         subs = [(e, push(e)) for e in ("messages", "message", "contacts", "session", "peers", "transfer",
-                                       "transfer_offer", "notification", "typing", "request", "status", "social")]
+                                       "transfer_offer", "notification", "typing", "request", "status", "social", "cloud")]
         for e, cb in subs:
             node.bus.on(e, cb)
 

@@ -69,9 +69,16 @@ class SocialService:
             if only is None or s.contact_id in only:
                 yield s
 
+    def _cloud_ok(self, c) -> bool:
+        cloud = getattr(self.node, "cloud", None)
+        return bool(cloud is not None and cloud.can_reach(c))
+
     async def _send(self, contact_id: int, obj: dict) -> bool:
         s = self.node.connections.session_for_contact(contact_id)
         if not s:
+            cloud = getattr(self.node, "cloud", None)
+            if cloud is not None and cloud.online:
+                return await cloud.send(self.repo.contact(contact_id), obj)
             return False
         try:
             await s.session.send_json(obj)
@@ -102,6 +109,9 @@ class SocialService:
                 await s.session.send_json(payload)
             except Exception:
                 pass
+        for c in self.repo.contacts():
+            if c.follows_me and self._cloud_ok(c) and not self.node.connections.is_online(c.id):
+                await self._send(c.id, payload)
         self.node.bus.emit("social")
 
     # ------------------------------------------------------------------ verification
@@ -322,7 +332,7 @@ class SocialService:
             s.commit()
         post = self.post(pid)
         for c in self.repo.contacts():
-            if c.follows_me and self.node.connections.is_online(c.id):
+            if c.follows_me and (self.node.connections.is_online(c.id) or self._cloud_ok(c)):
                 await self._send(c.id, self._post_payload(post, c.peer_user_id))
         self.repo.log("system", "You shared a new post")
         self.node.bus.emit("social")

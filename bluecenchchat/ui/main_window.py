@@ -26,6 +26,7 @@ from .dialogs.common import OnboardingDialog
 from .pages.account import HelpPage, NotificationsPage, ProfilePage, SecurityPage, SettingsPage
 from .pages.connections import ConnectionsPage
 from .pages.dashboard import DashboardPage
+from .pages.everyone import EveryonePage
 from .pages.home import HomePage
 from .pages.verify import VerifyPage
 from .pages.devices import DevicesPage
@@ -38,6 +39,7 @@ NAV = [
     ("home", "Home", "house", HomePage),
     ("dashboard", "Dashboard", "layout-dashboard", DashboardPage),
     ("discover", "Discover People", "radar", DiscoverPage),
+    ("everyone", "Everyone", "globe", EveryonePage),
     ("connections", "My Connections", "users", ConnectionsPage),
     ("messages", "Messages", "message-square", MessagesPage),
     ("transfers", "File Transfers", "arrow-left-right", TransfersPage),
@@ -211,6 +213,10 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ calls
     def start_call(self, contact_id: int, video: bool) -> None:
+        if not self.node.connections.session_for_contact(contact_id):
+            self.toast("Calls work when you're nearby: connect over Bluetooth or the same Wi-Fi first. "
+                       "Texting works from anywhere.", "warning")
+            return
         cur = self.node.calls.current
         if cur and cur.state != "ended":
             self.toast("You're already in a call", "warning")

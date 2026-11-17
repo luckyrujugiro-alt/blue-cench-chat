@@ -42,14 +42,23 @@ class MessagingService:
         await self._deliver(msg)
         return msg.id
 
+    async def _relay(self, contact_id: int, obj: dict) -> bool:
+        """Send over Bluetooth/LAN if connected, otherwise over the internet (online mode)."""
+        s = self.node.connections.session_for_contact(contact_id)
+        if s:
+            await s.session.send_json(obj)
+            return True
+        cloud = getattr(self.node, "cloud", None)
+        if cloud is not None:
+            return await cloud.send(self.node.repo.contact(contact_id), obj)
+        return False
+
     async def _deliver(self, msg) -> None:
-        s = self.node.connections.session_for_contact(msg.contact_id)
-        if not s:
-            return  # stays queued until the contact reconnects
         try:
-            await s.session.send_json(
-                {"t": "msg", "id": msg.id, "text": msg.body, "reply_to": msg.reply_to, "ts": msg.ts}
-            )
+            ok = await self._relay(msg.contact_id,
+                                   {"t": "msg", "id": msg.id, "text": msg.body, "reply_to": msg.reply_to, "ts": msg.ts})
+            if not ok:
+                return  # stays queued until the contact reconnects or we go online
             self.node.repo.set_message(msg.id, status="sent")
         except Exception as exc:
             log.info("send failed, keeping queued: %s", exc)
@@ -73,12 +82,10 @@ class MessagingService:
         ids = self.node.repo.mark_incoming_read(contact_id)
         if ids:
             self.node.bus.emit("messages", contact_id)
-            s = self.node.connections.session_for_contact(contact_id)
-            if s:
-                try:
-                    await s.session.send_json({"t": "read", "ids": ids[:500]})
-                except Exception:
-                    pass
+            try:
+                await self._relay(contact_id, {"t": "read", "ids": ids[:500]})
+            except Exception:
+                pass
 
     async def set_typing(self, contact_id: int, on: bool) -> None:
         now = time.time()
@@ -98,9 +105,10 @@ class MessagingService:
             return
         self.node.repo.set_message(msg_id, deleted=True)
         if for_everyone and m.direction == "out":
-            s = self.node.connections.session_for_contact(m.contact_id)
-            if s:
-                await s.session.send_json({"t": "msg_del", "id": msg_id})
+            try:
+                await self._relay(m.contact_id, {"t": "msg_del", "id": msg_id})
+            except Exception:
+                pass
         self.node.bus.emit("messages", m.contact_id)
 
     async def react(self, msg_id: str, reaction: str) -> None:
@@ -111,9 +119,10 @@ class MessagingService:
             return
         reaction = "" if m.reaction == reaction else reaction
         self.node.repo.set_message(msg_id, reaction=reaction)
-        s = self.node.connections.session_for_contact(m.contact_id)
-        if s:
-            await s.session.send_json({"t": "react", "id": msg_id, "r": reaction})
+        try:
+            await self._relay(m.contact_id, {"t": "react", "id": msg_id, "r": reaction})
+        except Exception:
+            pass
         self.node.bus.emit("messages", m.contact_id)
 
     # -- incoming ------------------------------------------------------------
@@ -135,9 +144,10 @@ class MessagingService:
                     preview = text if len(text) < 90 else text[:87] + "..."
                     self.node.notify("message", contact.name, preview, "notify_messages", ref=str(contact.id),
                                      store=False)
-            s = self.node.connections.session_for_contact(contact.id)
-            if s:
-                await s.session.send_json({"t": "ack", "id": mid})
+            try:
+                await self._relay(contact.id, {"t": "ack", "id": mid})
+            except Exception:
+                pass
             if self.active_contact == contact.id and self.node.window_active():
                 await self.mark_read(contact.id)
         elif t in ("ack", "read"):

@@ -380,7 +380,7 @@ async function contactSheet(c) {
 
 /* ------------------------------------------------------------------ people */
 function peopleView() {
-  const segs = [["accepted", "Connections"], ["requests", "Requests"], ["blocked", "Blocked"]];
+  const segs = [["everyone", "Everyone"], ["accepted", "Connections"], ["requests", "Requests"], ["blocked", "Blocked"]];
   const list = h("div", { class: "scroll cards", id: "people" });
   fillPeople(list);
   return h("section", { class: "panel wide" }, topbar("People"),
@@ -392,6 +392,7 @@ function peopleView() {
 function fillPeople(list) {
   list = list || document.getElementById("people");
   if (!list) return;
+  if (S.people === "everyone") { fillEveryone(list); return; }
   if (!S.peopleList.length) {
     list.replaceChildren(h("div", { class: "empty" }, icon("users"), h("div", {},
       { accepted: "No connections yet", requests: "No pending requests", blocked: "Nobody is blocked" }[S.people])));
@@ -687,8 +688,37 @@ async function loadContact() {
   if (st && !S.typing[S.chat]) st.textContent = S.contact.online ? `Online - ${S.contact.transport}` : `Offline - last seen ${ago(S.contact.last_seen)}`;
 }
 async function loadPeople() {
+  if (S.people === "everyone") {
+    try { S.everyone = await api("/api/everyone"); } catch (_) { return; }
+    fillPeople();
+    return;
+  }
   try { S.peopleList = await api(`/api/contacts?group=${S.people}`); } catch (_) { return; }
   fillPeople();
+}
+async function openPerson(p, then) {
+  const r = await run(post(`/api/everyone/${encodeURIComponent(p.fuid)}/open`));
+  if (r && r.id) then(r.id);
+}
+function fillEveryone(list) {
+  const e = S.everyone || { online: false, people: [] };
+  if (!e.online) {
+    list.replaceChildren(h("div", { class: "empty" }, icon("wifi-off"), h("div", {}, "Online mode is off"),
+      h("div", { class: "faint" }, "Turn it on in the PC app (Everyone page) to find and text people anywhere.")));
+    return;
+  }
+  if (!e.people.length) { list.replaceChildren(h("div", { class: "empty" }, icon("users"), h("div", {}, "Nobody else online yet"))); return; }
+  list.replaceChildren(...e.people.map((p) => h("div", { class: "card" },
+    h("div", { class: "row", style: "padding:0;cursor:default" }, avatar({ name: p.name, uid: p.uid }, "", p.online),
+      h("div", { class: "grow" }, h("div", { class: "title" }, p.name || p.username, tick(p.tick)),
+        h("div", { class: "sub" }, "@" + p.username + (p.follows_me ? " · follows you" : "")),
+        h("div", { class: "faint" }, `${p.followers} followers · ${p.posts} posts`))),
+    p.note ? h("div", { class: "faint", style: "margin-top:6px" }, "Note: " + p.note) : null,
+    h("div", { class: "actions" },
+      h("button", { class: "btn " + (p.i_follow ? "following" : "follow"), disabled: p.blocked,
+        onclick: () => openPerson(p, (id) => run(post(`/api/follow/${id}`, { on: !p.i_follow })).then(loadPeople)) },
+        p.i_follow ? "Following" : (p.follows_me ? "Follow back" : "Follow")),
+      h("button", { class: "btn", disabled: p.blocked, onclick: () => openPerson(p, (id) => openChat(id)) }, icon("message-square"), "Message")))));
 }
 async function loadNearby() {
   try { S.nearby = await api("/api/nearby"); } catch (_) { return; }
@@ -740,6 +770,7 @@ function connectWs() {
         }
         break;
       case "status": later.me(); break;
+      case "cloud": if (S.tab === "people") later.people(); break;
       case "social": if (S.tab === "home") later.home(); if (S.tab === "more") later.profile(); if (S.tab === "people") later.people(); break;
       default: break;
     }
