@@ -23,6 +23,9 @@ WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17134
 
+CloseApplications=force
+RestartApplications=no
+
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
 
@@ -44,3 +47,25 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
+
+[Code]
+// Quit a running Blue Cench Chat (it keeps running in the tray) so its files can be replaced.
+procedure KillRunningApp();
+var
+  Code: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /T /IM BlueCenchChat.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Sleep(800);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  KillRunningApp();
+  Result := '';
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  KillRunningApp();
+  Result := True;
+end;
