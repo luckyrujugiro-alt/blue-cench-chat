@@ -501,10 +501,13 @@ class SettingsPage(Page):
 
         app = Card("Appearance & accessibility", "sun")
         self.theme = QComboBox()
-        self.theme.addItems(["Light", "Dark"])
-        self.theme.setCurrentIndex(1 if s.get("theme") == "dark" else 0)
+        for key, title in theme.THEME_NAMES:
+            self.theme.addItem(title, key)
+        keys = [k for k, _ in theme.THEME_NAMES]
+        self.theme.setCurrentIndex(keys.index(s.get("theme")) if s.get("theme") in keys else 0)
         self.theme.currentIndexChanged.connect(self._theme)
-        app.add(SettingRow("Appearance", "Light like Instagram, or Dark for night use. Shortcut: Ctrl+D.", self.theme))
+        app.add(SettingRow("Appearance", "Light, Dark, or the Blue Cench Midnight Blue signature look. "
+                                         "Ctrl+D switches between them.", self.theme))
         self.scale = QComboBox()
         for v in (90, 100, 115, 130):
             self.scale.addItem(f"{v}%", v)
@@ -569,7 +572,7 @@ class SettingsPage(Page):
         self.content.addStretch(1)
 
     def _theme(self) -> None:
-        self.node.update_settings(theme="dark" if self.theme.currentIndex() == 1 else "light",
+        self.node.update_settings(theme=self.theme.currentData() or "light",
                                   font_scale=self.scale.currentData())
         self.win.apply_theme(rebuild=True)
 

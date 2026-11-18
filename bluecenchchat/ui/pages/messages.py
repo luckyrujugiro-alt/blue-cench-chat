@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+import re
 import time
 
 from PySide6.QtCore import QPoint, QSize, Qt, QTimer
@@ -38,14 +40,15 @@ from ..dialogs.common import VerifyDialog, confirm
 
 STATUS_ICON = {"queued": ("clock", "Queued - will send when connected"), "sent": ("check", "Sent"),
                "delivered": ("check-check", "Delivered"), "read": ("check-check", "Read"),
-               "failed": ("circle-alert", "Failed")}
+               "failed": ("circle-alert", "Failed"),
+               "relayed": ("radio", "Passed to friends nearby - they'll carry it to this person (extended range)")}
 
 
 class Composer(QPlainTextEdit):
     def __init__(self, on_send, on_typing) -> None:
         super().__init__()
         self.on_send, self.on_typing = on_send, on_typing
-        self.setPlaceholderText("Write a message")
+        self.setPlaceholderText("Write a message...  (@ to mention, Shift+Enter for a new line)")
         self.setFixedHeight(44)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.textChanged.connect(self._grow)
@@ -61,6 +64,23 @@ class Composer(QPlainTextEdit):
             self.on_send()
             return
         super().keyPressEvent(e)
+
+
+_MENTION = re.compile(r"(?<![\w@])@([A-Za-z0-9_.]{2,30})")
+
+
+def mention_html(body: str, outgoing: bool) -> str | None:
+    """Highlight @mentions; returns None when the text has none (keeps plain text, the safest path)."""
+    if "@" not in body or not _MENTION.search(body):
+        return None
+    color = "#FFFFFF" if outgoing else theme.palette().primary
+    parts, last = [], 0
+    for mt in _MENTION.finditer(body):
+        parts.append(html.escape(body[last:mt.start()]))
+        parts.append(f'<b style="color:{color}">@{html.escape(mt.group(1))}</b>')
+        last = mt.end()
+    parts.append(html.escape(body[last:]))
+    return "".join(parts).replace("\n", "<br>")
 
 
 class MessageRow(QWidget):
@@ -116,16 +136,32 @@ class MessageRow(QWidget):
                 ql.setContentsMargins(8, 4, 8, 4)
                 who = "You" if orig and orig.direction == "out" else chat.contact_name
                 ql.addWidget(label(who, "faint"))
-                qt = label((orig.body if orig and not orig.deleted else "Message deleted")[:140], wrap=True)
+                qt = label((orig.preview if orig and not orig.deleted else "Message deleted")[:140], wrap=True)
                 qt.setTextFormat(Qt.TextFormat.PlainText)
                 ql.addWidget(qt)
                 bl.addWidget(q)
-            text = label(m.body, wrap=True, selectable=True)
-            text.setTextFormat(Qt.TextFormat.PlainText)
-            longest = max((text.fontMetrics().horizontalAdvance(ln) for ln in m.body.splitlines() or [""]), default=0)
-            text.setMinimumWidth(min(480, max(60, longest + 4)))
-            text.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
-            bl.addWidget(text)
+            if m.kind == "voice":
+                from ..components.voice_ui import VoiceBubble
+                try:
+                    secs = float(m.body)
+                except ValueError:
+                    secs = 0.0
+                vb = VoiceBubble(m.id, secs, out)
+                vb.setMinimumWidth(260)
+                bl.addWidget(vb)
+            else:
+                text = label(m.body, wrap=True, selectable=True)
+                rich = mention_html(m.body, out)
+                if rich is None:
+                    text.setTextFormat(Qt.TextFormat.PlainText)
+                else:
+                    text.setTextFormat(Qt.TextFormat.RichText)
+                    text.setText(rich)
+                longest = max((text.fontMetrics().horizontalAdvance(ln) for ln in m.body.splitlines() or [""]),
+                              default=0)
+                text.setMinimumWidth(min(480, max(60, longest + 4)))
+                text.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+                bl.addWidget(text)
             meta = QHBoxLayout()
             meta.setSpacing(4)
             meta.addStretch(1)
@@ -235,6 +271,10 @@ class ChatView(QWidget):
         hl.addLayout(col, 1)
         self.transport = Pill("", "cyan")
         hl.addWidget(self.transport)
+        self.b_route = tool_button("radio", "How to connect: Wi-Fi or Bluetooth")
+        self.route_menu = QMenu(self.b_route)
+        self.b_route.clicked.connect(self._route_menu)
+        hl.addWidget(self.b_route)
         self.b_voice = tool_button("phone", "Voice call (Ctrl+Shift+V) - works over Bluetooth and Wi-Fi")
         self.b_video = tool_button("video", "Video call (Ctrl+Shift+E) - needs Wi-Fi / LAN")
         hl.addWidget(self.b_voice)
@@ -275,12 +315,12 @@ class ChatView(QWidget):
         self.scroll.setWidget(host)
         lay.addWidget(self.scroll, 1)
 
-        self.typing_lbl = label("", "faint")
-        self.typing_lbl.setContentsMargins(24, 0, 0, 4)
-        lay.addWidget(self.typing_lbl)
+        from ..components.voice_ui import Recorder, SignalIndicator, VoiceBubble  # noqa: F401
+        self.signal = SignalIndicator()
+        lay.addWidget(self.signal)
         self._typing_timer = QTimer(self)
         self._typing_timer.setSingleShot(True)
-        self._typing_timer.timeout.connect(lambda: (self.typing_lbl.setText(""), self.update_header()))
+        self._typing_timer.timeout.connect(lambda: (self.signal.stop(), self.update_header()))
 
         comp = QFrame()
         comp.setObjectName("Composer")
@@ -310,10 +350,15 @@ class ChatView(QWidget):
         row.addWidget(attach, 0, Qt.AlignmentFlag.AlignBottom)
         self.edit = Composer(self.send, self._typing)
         row.addWidget(self.edit, 1)
+        self.recorder = Recorder()
+        self.recorder.finished.connect(self._send_voice)
+        row.addWidget(self.recorder, 0, Qt.AlignmentFlag.AlignBottom)
         self.send_btn = button("", "send", "primary", "Send (Enter)")
         self.send_btn.setFixedSize(44, 44)
         self.send_btn.clicked.connect(self.send)
         row.addWidget(self.send_btn, 0, Qt.AlignmentFlag.AlignBottom)
+        from PySide6.QtGui import QKeySequence, QShortcut
+        QShortcut(QKeySequence("Ctrl+R"), self, activated=lambda: self.recorder.isEnabled() and self.recorder.toggle())
         cl.addLayout(row)
         self.notice = label("", "faint", wrap=True)
         cl.addWidget(self.notice)
@@ -339,7 +384,7 @@ class ChatView(QWidget):
         self.b_video.setEnabled(can_call and s.transport == "lan")
         self.b_video.setToolTip("Video call (Ctrl+Shift+E)" if can_call and s.transport == "lan" else
                                 "Video calls need both devices on the same Wi-Fi / LAN")
-        if self.typing_lbl.text():
+        if self.signal.isVisible():
             pass
         elif s:
             self.status.setText(f"Online  |  {c.peer_user_id}")
@@ -355,6 +400,7 @@ class ChatView(QWidget):
         accepted = c.status == "accepted"
         self.edit.setEnabled(accepted)
         self.send_btn.setEnabled(accepted)
+        self.recorder.setEnabled(accepted)
         if not accepted:
             self.notice.setText("You can message this person once your connection request is accepted.")
         elif not s and self.node.cloud.can_reach(c):
@@ -366,10 +412,10 @@ class ChatView(QWidget):
 
     def show_typing(self, on: bool) -> None:
         if on:
-            self.typing_lbl.setText(f"{self.contact_name} is typing...")
+            self.signal.show_for(self.contact_name)
             self._typing_timer.start(5000)
         else:
-            self.typing_lbl.setText("")
+            self.signal.stop()
 
     # -- messages ------------------------------------------------------------
     def _near_bottom(self) -> bool:
@@ -427,7 +473,7 @@ class ChatView(QWidget):
             self.reply_bar.hide()
             return
         who = "yourself" if m.direction == "out" else self.contact_name
-        self.reply_text.setText(f"Replying to {who}: {m.body[:90]}")
+        self.reply_text.setText(f"Replying to {who}: {m.preview[:90]}")
         self.reply_bar.show()
         self.edit.setFocus()
 
@@ -441,6 +487,38 @@ class ChatView(QWidget):
         self.bridge.run(self.node.messaging.send_text(self.cid, text, reply), None,
                         lambda e: self.win.toast(str(e), "error"))
         self.bridge.run(self.node.messaging.set_typing(self.cid, False))
+
+    def _route_menu(self) -> None:
+        c = self.node.repo.contact(self.cid)
+        if not c:
+            return
+        cm = self.node.connections
+        pref = cm.route_pref(c)
+        m = self.route_menu
+        m.clear()
+        online = cm.is_online(c.id)
+        for via, text, icon_name in (("lan", "Connect over Wi-Fi / LAN (fastest, video calls)", "wifi"),
+                                     ("bt", "Connect over Bluetooth (no Wi-Fi needed)", "bluetooth")):
+            a = m.addAction(icons.plain(icon_name, 16), text)
+            a.setEnabled(not online)
+            a.triggered.connect(lambda _=False, v=via: self._connect_via(v))
+        m.addSeparator()
+        m.addAction("Always use for this person:").setEnabled(False)
+        for val, text in (("auto", "Automatic (best available)"), ("lan", "Wi-Fi / LAN only"), ("bt", "Bluetooth only")):
+            a = m.addAction(("✓  " if pref == val else "     ") + text)
+            a.triggered.connect(lambda _=False, v=val: (cm.set_route_pref(self.cid, v),
+                                                        self.win.toast("Saved - auto-reconnect uses this route")))
+        m.exec(self.b_route.mapToGlobal(QPoint(0, self.b_route.height())))
+
+    def _connect_via(self, via: str) -> None:
+        self.win.toast("Connecting over " + ("Wi-Fi..." if via == "lan" else "Bluetooth..."))
+        self.bridge.run(self.node.connections.connect_contact(self.cid, via),
+                        lambda _r: self.win.toast("Connected", "success"),
+                        lambda e: self.win.toast(str(e), "warning"))
+
+    def _send_voice(self, pcm: bytes) -> None:
+        self.bridge.run(self.node.messaging.send_voice(self.cid, pcm), None,
+                        lambda e: self.win.toast(str(e), "warning"))
 
     def _typing(self) -> None:
         self.bridge.run(self.node.messaging.set_typing(self.cid, True))
@@ -476,14 +554,21 @@ class ConversationItem(QWidget):
         top = QHBoxLayout()
         nm = label(c.name, "h3")
         nm.setTextFormat(Qt.TextFormat.PlainText)
-        top.addWidget(nm, 1)
+        top.addWidget(nm)
+        if node.social.is_verified(c):
+            top.addWidget(icon_label("badge-check", 14, theme.VERIFIED_BLUE))
+        if c.favorite:
+            star = icon_label("star", 13, theme.palette().warning)
+            star.setToolTip("Favorite - pinned to the top")
+            top.addWidget(star)
+        top.addStretch(1)
         if last:
             top.addWidget(label(human_time(last.ts), "faint"))
         col.addLayout(top)
         bot = QHBoxLayout()
         prev = "No messages yet"
         if last:
-            prev = ("You: " if last.direction == "out" else "") + (f"File: {last.body}" if last.kind == "file" else last.body)
+            prev = ("You: " if last.direction == "out" else "") + last.preview
         pl = label(prev.replace("\n", " ")[:48], "muted")
         pl.setTextFormat(Qt.TextFormat.PlainText)
         bot.addWidget(pl, 1)

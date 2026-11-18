@@ -34,8 +34,8 @@ LAN_BEACON_INTERVAL = 2.0  # seconds
 PEER_STALE_AFTER = 12.0  # seconds without a beacon -> peer disappears
 
 # Transfer tuning per transport (bytes)
-CHUNK_SIZE = {"lan": 256 * 1024, "rfcomm": 16 * 1024, "loopback": 256 * 1024}
-WINDOW_CHUNKS = {"lan": 16, "rfcomm": 8, "loopback": 16}
+CHUNK_SIZE = {"lan": 256 * 1024, "rfcomm": 24 * 1024, "loopback": 256 * 1024}
+WINDOW_CHUNKS = {"lan": 16, "rfcomm": 12, "loopback": 16}
 MAX_FRAME = 2 * 1024 * 1024
 MAX_TEXT_LEN = 16_000
 

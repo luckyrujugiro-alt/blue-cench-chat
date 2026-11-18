@@ -177,9 +177,13 @@ class MainWindow(QMainWindow):
         else:
             self.toast("Open a chat first, then press the shortcut to call", "warning")
 
+    THEME_CYCLE = ["light", "dark", "midnight"]
+
     def toggle_theme(self) -> None:
-        dark = self.node.settings.get("theme", "light") == "dark"
-        self.node.update_settings(theme="light" if dark else "dark")
+        """Ctrl+D / the sidebar button: Light -> Dark -> Midnight Blue -> Light."""
+        cur = self.node.settings.get("theme", "light")
+        nxt = self.THEME_CYCLE[(self.THEME_CYCLE.index(cur) + 1) % 3] if cur in self.THEME_CYCLE else "dark"
+        self.node.update_settings(theme=nxt)
         self.apply_theme(rebuild=True)
 
     def show_shortcuts(self) -> None:
@@ -277,9 +281,10 @@ class MainWindow(QMainWindow):
         self._brand_name = name
         brand.addWidget(name)
         brand.addStretch(1)
-        dark = self.node.settings.get("theme", "light") == "dark"
-        tt = tool_button("sun" if dark else "moon", "Switch to light mode (Ctrl+D)" if dark else
-                         "Switch to dark mode (Ctrl+D)")
+        cur = self.node.settings.get("theme", "light")
+        nxt = {"light": "Dark", "dark": "Midnight Blue", "midnight": "Light"}.get(cur, "Dark")
+        tt = tool_button({"light": "moon", "dark": "sparkles", "midnight": "sun"}.get(cur, "moon"),
+                         f"Switch to {nxt} (Ctrl+D)")
         tt.clicked.connect(self.toggle_theme)
         self._theme_btn = tt
         brand.addWidget(tt)

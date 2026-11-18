@@ -143,3 +143,20 @@ async def test_wrong_password_and_forged_sender(far_apart, firebase):
 def test_config_missing_means_unavailable(monkeypatch):
     monkeypatch.setenv("BLUECENCHCHAT_CLOUD", "{}")
     assert cloud_mod.load_config() == {}
+
+
+async def test_voice_message_over_internet(far_apart, firebase, tmp_path, monkeypatch):
+    import math
+    import struct
+
+    from bluecenchchat.core import voice
+    monkeypatch.setattr(voice.config, "data_dir", lambda: tmp_path)
+    a, b = far_apart
+    await a.cloud.start("Passw0rd!x")
+    await b.cloud.start("Passw0rd!x")
+    cid = await a.cloud.open_person((await a.cloud.directory(force=True))[0]["fuid"])
+    pcm = b"".join(struct.pack("<h", int(9000 * math.sin(i / 3))) for i in range(8000 * 3))
+    mid = await a.messaging.send_voice(cid, pcm)
+    await wait_for(lambda: b.repo.message(mid) is not None)
+    assert b.repo.message(mid).kind == "voice"
+    assert "audio" not in json.dumps(firebase["db"])

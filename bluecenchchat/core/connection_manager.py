@@ -191,6 +191,7 @@ class ConnectionManager:
         repo.log("connection", f"Secure session with {contact.name} over {self.node.transport_label(session.stream.kind)}")
         if contact.status == "accepted":
             await self.node.on_contact_online(contact.id)
+            asyncio.ensure_future(self.node.mesh.on_session(contact))
         asyncio.ensure_future(self.node.social.on_session(contact.id))
         return contact.id
 
@@ -235,6 +236,8 @@ class ConnectionManager:
                     await self.node.calls.on_message(contact, payload)
                 elif t.startswith("x_"):
                     await self.node.transfers.on_message(contact, payload)
+                elif t == "relay":
+                    await self.node.mesh.on_relay(contact, payload)
                 else:
                     await self.node.messaging.on_message(contact, payload)
         except asyncio.CancelledError:
@@ -385,25 +388,72 @@ class ConnectionManager:
                 except Exception:
                     pass
 
+    def route_pref(self, contact) -> str:
+        """auto | lan | bt - how the user wants to reach this person."""
+        r = (contact.address or {}).get("route", "auto") if contact else "auto"
+        return r if r in ("auto", "lan", "bt") else "auto"
+
+    def set_route_pref(self, contact_id: int, route: str) -> None:
+        c = self.node.repo.contact(contact_id)
+        if not c or route not in ("auto", "lan", "bt"):
+            return
+        self.node.repo.set_contact(contact_id, address={**(c.address or {}), "route": route})
+        self.node.bus.emit("contacts")
+
+    async def connect_contact(self, contact_id: int, via: str | None = None) -> int:
+        """Connect to a known person nearby, over Wi-Fi/LAN ("lan") or Bluetooth ("bt")."""
+        c = self.node.repo.contact(contact_id)
+        if not c:
+            raise TransportError("Unknown contact")
+        if self.is_online(c.id):
+            return c.id
+        via = via or self.route_pref(c)
+        route = self.node.discovery.find_contact_route(c)
+        if route is None:
+            raise TransportError(f"{c.name} isn't nearby right now. Make sure Blue Cench Chat is open on their "
+                                 "device, with Bluetooth on or on the same Wi-Fi.")
+        lan = (route.lan_ip, route.lan_port) if route.lan_ip and route.lan_port else None
+        bt = route.bt_addr
+        if via == "lan":
+            bt = None
+            if not lan:
+                raise TransportError(f"{c.name} isn't on your Wi-Fi. Try Bluetooth.")
+        elif via == "bt":
+            lan = None
+            if not bt:
+                raise TransportError(f"{c.name} isn't reachable over Bluetooth. Try Wi-Fi.")
+        self._attempts[c.peer_user_id] = time.time()
+        return await self.connect(lan=lan, bt_addr=bt, prefer="rfcomm" if via == "bt" else "lan",
+                                  expect_user_id=c.peer_user_id)
+
     async def _reconnect_loop(self) -> None:
-        """Automatic reconnection to accepted contacts that are nearby."""
+        """Automatic reconnection to accepted contacts that are nearby (fast: every 5 s)."""
         while True:
-            await asyncio.sleep(10)
+            await asyncio.sleep(5)
             try:
                 if not self.node.settings.get("auto_reconnect", True):
                     continue
                 for c in self.node.repo.contacts(("accepted",)):
                     if self.is_online(c.id) or c.peer_user_id in self._connecting:
                         continue
-                    if time.time() - self._attempts.get(c.peer_user_id, 0) < 30:
+                    if time.time() - self._attempts.get(c.peer_user_id, 0) < 15:
                         continue
                     route = self.node.discovery.find_contact_route(c)
                     if route is None or not route.transports:
                         continue
                     self._attempts[c.peer_user_id] = time.time()
                     lan = (route.lan_ip, route.lan_port) if route.lan_ip and route.lan_port else None
+                    bt = route.bt_addr
+                    pref = self.route_pref(c)
+                    if pref == "lan":
+                        bt = None
+                    elif pref == "bt":
+                        lan = None
+                    if not lan and not bt:
+                        continue
                     try:
-                        await self.connect(lan=lan, bt_addr=route.bt_addr, expect_user_id=c.peer_user_id)
+                        await self.connect(lan=lan, bt_addr=bt, prefer="rfcomm" if pref == "bt" else "lan",
+                                           expect_user_id=c.peer_user_id)
                     except Exception as exc:
                         log.debug("auto-reconnect to %s failed: %s", c.peer_user_id, exc)
             except asyncio.CancelledError:

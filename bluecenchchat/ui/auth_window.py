@@ -50,50 +50,66 @@ class BrandPanel(QFrame):
         super().__init__()
         p = theme.palette()
         self.setStyleSheet(
-            f"BrandPanel {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #0B1A3C, stop:0.55 #07102A, "
-            f"stop:1 #050912); border-right: 1px solid {p.border}; }} BrandPanel QLabel {{ color: #E7EEF9; }}"
+            f"BrandPanel {{ background: qradialgradient(cx:0.2, cy:0.15, radius:1.1, fx:0.2, fy:0.15, stop:0 #10306A, "
+            f"stop:0.45 #081A40, stop:1 #040A1C); border-right: 1px solid {p.border}; }} "
+            f"BrandPanel QLabel {{ color: #E7EEF9; background: transparent; }}"
         )
         self.setMinimumWidth(400)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(44, 44, 44, 40)
         lay.setSpacing(14)
+        from PySide6.QtGui import QColor
+        from PySide6.QtWidgets import QGraphicsDropShadowEffect
+
         logo = QLabel()
         logo.setPixmap(QPixmap(str(config.resource_path("assets", "logo", "bluecenchchat.png"))).scaled(
-            60, 60, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            72, 72, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        glow = QGraphicsDropShadowEffect(logo)  # neon glow, like the brand artwork
+        glow.setBlurRadius(46)
+        glow.setOffset(0, 0)
+        glow.setColor(QColor(30, 139, 255, 210))
+        logo.setGraphicsEffect(glow)
         lay.addWidget(logo)
-        lay.addSpacing(10)
-        name = label("Blue Cench Chat")
-        name.setStyleSheet(f"font-size:{theme.px(34)}px; font-weight:800; letter-spacing:1px;")
+        lay.addSpacing(12)
+        name = QLabel('<span style="color:#FFFFFF">Blue </span><span style="color:#2E9BFF">Cench</span>')
+        name.setTextFormat(Qt.TextFormat.RichText)
+        name.setStyleSheet(f"font-size:{theme.px(38)}px; font-weight:800;")
         lay.addWidget(name)
+        chat = label("C h a t")
+        chat.setStyleSheet(f"font-size:{theme.px(18)}px; color:#B9C6E0; font-weight:500; letter-spacing:4px;")
+        lay.addWidget(chat)
         tag = label(config.APP_TAGLINE)
-        tag.setStyleSheet(f"font-size:{theme.px(16)}px; color:#22D3EE; font-weight:600;")
+        tag.setStyleSheet(f"font-size:{theme.px(15)}px; color:#22D3EE; font-weight:600;")
         lay.addWidget(tag)
-        lay.addSpacing(26)
+        lay.addSpacing(20)
         for ic, title, text in (
-            ("bluetooth", "Nearby discovery", "Find people around you over Bluetooth LE and your local network."),
-            ("lock", "End-to-end encrypted", "Every session is authenticated and encrypted with ChaCha20-Poly1305."),
-            ("arrow-left-right", "Large file transfers", "Resumable transfers with SHA-256 verification of every file."),
-            ("wifi-off", "No internet required", "Works offline - your account and keys stay on this PC."),
+            ("bluetooth", "Bluetooth, Wi-Fi & online", "Chat nearby with no internet, or with anyone, anywhere."),
+            ("lock", "End-to-end encryption", "Curve25519 keys and ChaCha20-Poly1305 on every message and call."),
+            ("radio", "Extended range", "Messages hop through friends nearby to reach people out of range."),
+            ("mic", "Voice messages & calls", "Voice over Bluetooth or Wi-Fi. Video calls on the same Wi-Fi."),
+            ("star", "Favorites & mentions", "Pin the people who matter. @mention someone to get their attention."),
+            ("shield-check", "Password protection", "Argon2id-protected account. Your keys never leave your device."),
         ):
             row = QHBoxLayout()
             row.setSpacing(14)
             chip = QLabel()
             chip.setFixedSize(38, 38)
             chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            chip.setStyleSheet("background: rgba(47,123,255,0.16); border-radius: 11px;")
-            chip.setPixmap(icons.pixmap(ic, 19, "#6EA4FF"))
+            chip.setStyleSheet("background: rgba(30,139,255,0.16); border: 1px solid rgba(46,155,255,0.35);"
+                               " border-radius: 11px;")
+            chip.setPixmap(icons.pixmap(ic, 19, "#4DB2FF"))
             row.addWidget(chip, 0, Qt.AlignmentFlag.AlignTop)
             col = QVBoxLayout()
-            col.setSpacing(2)
+            col.setSpacing(1)
             t = label(title)
             t.setStyleSheet(f"font-weight:700; font-size:{theme.px(14)}px;")
             d = label(text, wrap=True)
-            d.setStyleSheet("color:#8C9AB6;")
+            d.setStyleSheet("color:#8EA3C8;")
             col.addWidget(t)
             col.addWidget(d)
             row.addLayout(col, 1)
             lay.addLayout(row)
-            lay.addSpacing(6)
+            lay.addSpacing(2)
         lay.addStretch(1)
         ver = label(f"Version {config.APP_VERSION}" + (f"  |  Development profile: {config.profile()}"
                                                         if config.profile() else ""))
@@ -189,7 +205,7 @@ class AuthWindow(QWidget):
 
     # ----------------------------------------------------------------- welcome
     def _build_welcome(self) -> None:
-        pg = FormPage("Welcome to Blue Cench Chat", "Secure nearby communication and file sharing - no internet needed.")
+        pg = FormPage("Welcome to Blue Cench Chat", "Chat nearby over Bluetooth and Wi-Fi with no internet - or with anyone, anywhere online.")
         b1 = button("Sign in", "log-in", "primary")
         b2 = button("Create account", "user-plus")
         b3 = button("Continue as guest", "user-round", "ghost",

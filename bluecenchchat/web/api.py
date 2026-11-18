@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from starlette.websockets import WebSocketDisconnect
 
 from .. import config
-from ..core import file_safety
+from ..core import file_safety, voice
 from ..core.messaging import REACTIONS
 from .companion import COOKIE, WebCompanion
 
@@ -83,7 +83,8 @@ def _post(node, p) -> dict:
 
 def _message(m) -> dict:
     return {"id": m.id, "dir": m.direction, "kind": m.kind, "body": m.body, "reply_to": m.reply_to,
-            "status": m.status, "reaction": m.reaction, "ts": m.ts, "transfer_id": m.transfer_id}
+            "status": m.status, "reaction": m.reaction, "ts": m.ts, "transfer_id": m.transfer_id,
+            "preview": m.preview}
 
 
 def _transfer(node, t) -> dict:
@@ -114,7 +115,7 @@ def create_app(comp: WebCompanion) -> FastAPI:
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["Referrer-Policy"] = "no-referrer"
         resp.headers["Content-Security-Policy"] = (
-            "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; "
+            "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; script-src 'self'; "
             "connect-src 'self' wss: ws:; frame-ancestors 'none'")
         if request.url.path.startswith("/api/"):
             resp.headers["Cache-Control"] = "no-store"
@@ -274,6 +275,30 @@ def create_app(comp: WebCompanion) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(400, str(exc))
         return _message(node.repo.message(mid))
+
+    @app.post("/api/messages/{cid}/voice")
+    async def send_voice(cid: int, request: Request, dev=auth):
+        """Phone recorded a voice message: raw 16-bit mono PCM at 8 kHz in the body."""
+        get_contact(cid)
+        if request.headers.get("x-bluecenchchat") != "1":
+            raise HTTPException(403, "Missing header")
+        data = await request.body()
+        if len(data) > voice.MAX_BYTES * 2 + 1024:
+            raise HTTPException(413, f"Voice messages are limited to {voice.MAX_SECONDS} seconds")
+        try:
+            mid = await node.messaging.send_voice(cid, data, voice.RATE)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return _message(node.repo.message(mid))
+
+    @app.get("/api/voice/{mid}")
+    async def voice_audio(mid: str, dev=auth):
+        m = node.repo.message(mid)
+        audio = voice.load(mid) if m and m.kind == "voice" else None
+        if audio is None:
+            raise HTTPException(404)
+        return Response(voice.wav(voice.decode(audio)), media_type="audio/wav",
+                        headers={"Cache-Control": "private, max-age=86400"})
 
     @app.post("/api/messages/{cid}/read")
     async def read(cid: int, dev=auth):

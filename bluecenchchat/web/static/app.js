@@ -11,10 +11,11 @@ function getTheme() { try { return localStorage.getItem("bcc-theme") || "light";
 function applyTheme(t) {
   document.documentElement.setAttribute("data-theme", t);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", t === "dark" ? "#000000" : "#FFFFFF");
+  if (meta) meta.setAttribute("content", { dark: "#000000", midnight: "#060E24" }[t] || "#FFFFFF");
 }
 function toggleTheme() {
-  const t = getTheme() === "dark" ? "light" : "dark";
+  const order = ["light", "dark", "midnight"];
+  const t = order[(order.indexOf(getTheme()) + 1) % order.length];
   try { localStorage.setItem("bcc-theme", t); } catch (_) { /* private mode */ }
   applyTheme(t); render();
 }
@@ -258,7 +259,7 @@ function chatView() {
   box.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && wide.matches) { e.preventDefault(); send(box); } });
   const file = h("input", { type: "file", multiple: true, class: "hidden", onchange: (e) => upload(e.target.files) });
   const reply = S.replyTo ? h("div", { class: "replybar" }, icon("reply", "sm"),
-    h("span", {}, "Replying: " + S.replyTo.body), h("button", { class: "icon-btn", onclick: () => { S.replyTo = null; render(); }, "aria-label": "Cancel reply" }, icon("x", "sm"))) : null;
+    h("span", {}, "Replying: " + (S.replyTo.preview || S.replyTo.body)), h("button", { class: "icon-btn", onclick: () => { S.replyTo = null; render(); }, "aria-label": "Cancel reply" }, icon("x", "sm"))) : null;
   return h("section", { class: wide.matches ? "detail" : "panel" }, h("div", { class: "chat" },
     h("div", { class: "top" },
       h("button", { class: "icon-btn back", onclick: () => history.length > 1 && !wide.matches ? history.back() : closeChat(), "aria-label": "Back" }, icon("chevron-left")),
@@ -268,14 +269,91 @@ function chatView() {
       h("button", { class: "icon-btn", onclick: () => toast("Calls ring on your PC - answer them in the Blue Cench Chat app there.", "warn"), "aria-label": "Call" }, icon("phone")),
       h("button", { class: "icon-btn", onclick: () => contactSheet(c), "aria-label": "Contact options" }, icon("ellipsis-vertical"))),
     h("div", { class: "msgs", id: "msgs" }, msgNodes()),
-    h("div", { class: "typing", id: "typing" }, S.typing[S.chat] ? `${c.name} is typing...` : ""),
+    h("div", { class: "typing", id: "typing" }, S.typing[S.chat] ? signal(c.name) : ""),
     c.status === "accepted" ? h("div", { class: "quick" }, QUICK.map((q) => h("button", { onclick: () => sendText(q) }, q))) : null,
     reply,
     h("div", { class: "composer" },
       h("button", { class: "icon-btn attach", onclick: () => file.click(), "aria-label": "Send files", disabled: c.status !== "accepted" }, icon("paperclip")),
       file, box,
+      h("button", { class: "icon-btn mic", id: "mic", onclick: () => toggleRecord(), "aria-label": "Record a voice message", disabled: c.status !== "accepted" }, icon("mic")),
       h("button", { class: "send", onclick: () => send(box), "aria-label": "Send" }, icon("send")))));
 }
+/* Blue Cench "signal" typing indicator: three beams pulsing out from the sender */
+function signal(name) {
+  return h("span", { class: "signal", role: "status" }, h("i", {}), h("i", {}), h("i", {}), h("b", {}, name), " is writing");
+}
+/* ---- voice messages: record on the phone, upload 8 kHz 16-bit PCM ---- */
+const REC = { on: false };
+async function toggleRecord() {
+  const btn = document.getElementById("mic");
+  if (REC.on) { stopRecord(true); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast("This browser can't record audio", "err"); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = ctx.createMediaStreamSource(stream);
+    const proc = ctx.createScriptProcessor(4096, 1, 1);
+    const chunks = [];
+    proc.onaudioprocess = (e) => { if (REC.on) chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+    src.connect(proc); proc.connect(ctx.destination);
+    Object.assign(REC, { on: true, stream, ctx, proc, src, chunks, t0: Date.now(), cid: S.chat });
+    if (btn) btn.classList.add("rec");
+    REC.timer = setInterval(() => {
+      const s = Math.floor((Date.now() - REC.t0) / 1000);
+      const b = document.getElementById("mic");
+      if (b) b.setAttribute("data-t", `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`);
+      if (s >= 90) stopRecord(true);
+    }, 250);
+    toast("Recording - tap the mic again to send");
+  } catch (e) { toast("Microphone blocked: " + e.message, "err"); }
+}
+function stopRecord(sendIt) {
+  if (!REC.on) return;
+  REC.on = false; clearInterval(REC.timer);
+  const btn = document.getElementById("mic"); if (btn) { btn.classList.remove("rec"); btn.removeAttribute("data-t"); }
+  try { REC.src.disconnect(); REC.proc.disconnect(); } catch (_) { /* already closed */ }
+  REC.stream.getTracks().forEach((t) => t.stop());
+  const rate = REC.ctx.sampleRate; REC.ctx.close();
+  if (!sendIt) return;
+  const total = REC.chunks.reduce((n, c) => n + c.length, 0);
+  const all = new Float32Array(total); let o = 0; for (const c of REC.chunks) { all.set(c, o); o += c.length; }
+  const step = rate / 8000, n = Math.floor(total / step), pcm = new Int16Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = Math.floor(i * step), b = Math.max(a + 1, Math.floor((i + 1) * step)); let s = 0;
+    for (let j = a; j < b; j++) s += all[j];
+    pcm[i] = Math.max(-32768, Math.min(32767, Math.round((s / (b - a)) * 32767)));
+  }
+  if (n < 4000) { toast("Too short - record at least half a second", "warn"); return; }
+  fetch(`/api/messages/${REC.cid}/voice`, { method: "POST", credentials: "same-origin",
+    headers: { "X-BlueCenchChat": "1", "Content-Type": "application/octet-stream" }, body: pcm.buffer })
+    .then((r) => r.ok ? r.json() : r.json().then((d) => { throw new Error(d.detail || ("Error " + r.status)); }))
+    .then((m) => { if (!S.msgs.find((x) => x.id === m.id)) S.msgs.push(m); fillMsgs(); scrollChat(true); })
+    .catch((e) => toast(e.message, "err"));
+}
+function voiceBubble(m) {
+  let audio = null;
+  const secs = parseFloat(m.body) || 0;
+  const label = h("span", { class: "vt" }, `${Math.floor(secs / 60)}:${String(Math.round(secs % 60)).padStart(2, "0")}`);
+  let seed = 0; for (const ch of m.id) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  const bars = h("span", { class: "wave" }, Array.from({ length: 28 }, () => {
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    const el = h("i", {}); el.style.height = (25 + (seed % 75)) + "%"; return el;
+  }));
+  const btn = h("button", { class: "vplay", "aria-label": "Play voice message", onclick: (e) => {
+    e.stopPropagation();
+    if (!audio) {
+      audio = new Audio(`/api/voice/${m.id}`);
+      audio.addEventListener("timeupdate", () => {
+        const p = audio.currentTime / (audio.duration || secs || 1);
+        [...bars.children].forEach((b, i) => b.classList.toggle("on", i / bars.children.length < p));
+      });
+      audio.addEventListener("ended", () => { btn.replaceChildren(icon("play")); [...bars.children].forEach((b) => b.classList.remove("on")); });
+    }
+    if (audio.paused) { audio.play(); btn.replaceChildren(icon("pause")); } else { audio.pause(); btn.replaceChildren(icon("play")); }
+  } }, icon("play"));
+  return h("span", { class: "voice" }, btn, bars, label);
+}
+
 function msgNodes() {
   const out = [];
   let day = "";
@@ -293,10 +371,10 @@ function msgNodes() {
       continue;
     }
     const quoted = m.reply_to ? S.msgs.find((x) => x.id === m.reply_to) : null;
-    const st = { queued: "clock", sent: "check", delivered: "check-check", read: "check-check", failed: "circle-alert" }[m.status];
+    const st = { queued: "clock", sent: "check", delivered: "check-check", read: "check-check", failed: "circle-alert", relayed: "radio" }[m.status];
     out.push(h("div", { class: `b ${m.dir}${m.reaction ? " has-rx" : ""}`, onclick: () => msgSheet(m) },
-      m.reply_to ? h("div", { class: "q" }, quoted ? quoted.body.slice(0, 120) : "Earlier message") : null,
-      m.body,
+      m.reply_to ? h("div", { class: "q" }, quoted ? (quoted.preview || quoted.body).slice(0, 120) : "Earlier message") : null,
+      m.kind === "voice" ? voiceBubble(m) : m.body,
       h("div", { class: "t" }, new Date(m.ts * 1000).toTimeString().slice(0, 5),
         m.dir === "out" && st ? h("span", { class: m.status === "read" ? "read" : "", title: m.status }, icon(st)) : null),
       m.reaction ? h("span", { class: "rx" }, icon(m.reaction)) : null));
@@ -566,7 +644,7 @@ function homeView() {
   const feed = S.feed.length ? S.feed.map(postCard) : [h("div", { class: "empty" }, icon("house"),
     h("div", {}, "Your feed is empty"), h("div", { class: "faint" }, "Follow people in the People tab to see their posts, or share your first post."))];
   return h("section", { class: "panel wide" }, topbar("Blue Cench Chat",
-    h("button", { class: "icon-btn", "aria-label": "Switch light or dark", onclick: toggleTheme }, icon(getTheme() === "dark" ? "sun" : "moon")),
+    h("button", { class: "icon-btn", "aria-label": "Switch light or dark", onclick: toggleTheme }, icon({ light: "moon", dark: "sparkles", midnight: "sun" }[getTheme()] || "moon")),
     h("button", { class: "icon-btn", "aria-label": "New post", onclick: composeSheet }, icon("square-plus"))),
     h("div", { class: "scroll" }, notesBar(), h("div", { class: "feed" }, feed)));
 }
@@ -644,7 +722,7 @@ function profileHeader() {
     h("div", { class: "actions" },
       h("button", { class: "btn", onclick: noteSheet }, icon("music"), "Edit note"),
       h("button", { class: "btn", onclick: composeSheet }, icon("square-plus"), "New post"),
-      h("button", { class: "btn", onclick: toggleTheme }, icon(getTheme() === "dark" ? "sun" : "moon"), getTheme() === "dark" ? "Light mode" : "Dark mode")),
+      h("button", { class: "btn", onclick: toggleTheme }, icon({ light: "moon", dark: "sparkles", midnight: "sun" }[getTheme()] || "moon"), ({ light: "Dark mode", dark: "Midnight Blue", midnight: "Light mode" }[getTheme()] || "Dark mode"))),
     p.tick ? null : p.tick_requested ? h("div", { class: "faint" }, "Blue tick requested - waiting for review.")
       : h("div", { class: "actions" }, h("button", { class: "btn " + (canAsk ? "follow" : ""), disabled: !canAsk,
         onclick: () => run(post("/api/tick/request", { message: "" })).then((r) => { if (r) toast(r.message, "ok"); loadProfile(); }) },
@@ -764,7 +842,7 @@ function connectWs() {
         S.typing[a0] = !!a1;
         if (a0 === S.chat) {
           const el = document.getElementById("typing"); const st = document.getElementById("chat-status");
-          if (el) el.textContent = a1 ? `${(S.contact && S.contact.name) || ""} is typing...` : "";
+          if (el) el.replaceChildren(...(a1 ? [signal((S.contact && S.contact.name) || "")] : []));
           if (st && a1) st.textContent = "typing...";
           if (a1) setTimeout(() => { S.typing[a0] = false; if (el) el.textContent = ""; later.contact(); }, 5000);
         }

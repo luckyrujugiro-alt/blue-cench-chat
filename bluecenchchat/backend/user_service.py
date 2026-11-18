@@ -145,7 +145,9 @@ class UserRepository:
                 )
             )
 
-    def queued_messages(self, contact_id: int) -> list[Message]:
+    def queued_messages(self, contact_id: int, include_unconfirmed: bool = False) -> list[Message]:
+        """Outgoing messages still waiting to go out (and, optionally, sent but never confirmed)."""
+        statuses = ("queued", "failed", "sent", "relayed") if include_unconfirmed else ("queued", "failed")
         with self.db.session() as s:
             return list(
                 s.scalars(
@@ -154,8 +156,8 @@ class UserRepository:
                         Message.account_id == self.account_id,
                         Message.contact_id == contact_id,
                         Message.direction == "out",
-                        Message.status.in_(("queued", "failed")),
-                        Message.kind == "text",
+                        Message.status.in_(statuses),
+                        Message.kind.in_(("text", "voice")),
                         Message.deleted.is_(False),
                     )
                     .order_by(Message.ts)
@@ -199,7 +201,8 @@ class UserRepository:
                     )
                 )
                 out.append((c, last, unread or 0))
-        out.sort(key=lambda t: (t[1].ts if t[1] else 0), reverse=True)
+        # favorites are pinned on top, then most recent first
+        out.sort(key=lambda t: (bool(t[0].favorite), t[1].ts if t[1] else 0), reverse=True)
         return out
 
     def unread_total(self) -> int:

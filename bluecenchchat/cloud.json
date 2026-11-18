@@ -1,1 +1,11 @@
-{}
+{
+  "about": "Public Firebase web config for online mode. Safe to publish: access is controlled by firebase/database.rules.json.",
+  "apiKey": "AIzaSyDQcq-wN3QABBCgziVAUKbuaOepzb3skR4",
+  "projectId": "blue-cench-chat",
+  "databaseURL": "https://blue-cench-chat-default-rtdb.europe-west1.firebasedatabase.app",
+  "databaseURLs": [
+    "https://blue-cench-chat-default-rtdb.europe-west1.firebasedatabase.app",
+    "https://blue-cench-chat-default-rtdb.firebaseio.com",
+    "https://blue-cench-chat-default-rtdb.asia-southeast1.firebasedatabase.app"
+  ]
+}

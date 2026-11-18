@@ -30,7 +30,7 @@ from .transports.lan import LanTransport, local_ipv4_interfaces
 
 log = logging.getLogger("bluecenchchat.node")
 
-TRANSPORT_LABELS = {"lan": "Local Network", "rfcomm": "Bluetooth RFCOMM", "ble": "Bluetooth LE"}
+TRANSPORT_LABELS = {"lan": "Wi-Fi / LAN", "rfcomm": "Bluetooth", "ble": "Bluetooth LE", "loopback": "This PC"}
 
 
 class EventBus:
@@ -71,6 +71,9 @@ class BlueCenchChatNode:
         from .cloud import CloudService
 
         self.cloud = CloudService(self)
+        from .mesh import Mesh
+
+        self.mesh = Mesh(self)
         self.lan = LanTransport(self.connections.handle_incoming, self.discovery.on_lan_beacon, beacon_port)
         self.rfcomm = RfcommTransport(self.connections.handle_incoming)
         self.ble = BleBeacon(self.discovery.on_ble_sighting)

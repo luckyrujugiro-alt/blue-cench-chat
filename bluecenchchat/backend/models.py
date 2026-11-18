@@ -110,6 +110,10 @@ class Contact(Base):
         except ValueError:
             return {}
 
+    @address.setter
+    def address(self, value: dict) -> None:
+        self.address_json = json.dumps(value or {})
+
     @property
     def name(self) -> str:
         return self.display_name or self.username or self.peer_user_id
@@ -131,6 +135,19 @@ class Message(Base):
     transfer_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     ts: Mapped[float] = mapped_column(Float, default=time.time, index=True)
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    @property
+    def preview(self) -> str:
+        """Short text for chat lists and notifications."""
+        if self.kind == "voice":
+            try:
+                s = int(round(float(self.body)))
+            except ValueError:
+                s = 0
+            return f"Voice message {s // 60}:{s % 60:02d}"
+        if self.kind == "file":
+            return f"File: {self.body}"
+        return self.body
 
 
 class Transfer(Base):

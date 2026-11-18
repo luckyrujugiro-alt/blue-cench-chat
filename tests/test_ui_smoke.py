@@ -90,6 +90,8 @@ async def test_social_and_call_ui(qapp, pair, monkeypatch):
     win.toggle_theme()
     assert a.settings.get("theme") == "dark"
     win.toggle_theme()
+    assert a.settings.get("theme") == "midnight"
+    win.toggle_theme()
     assert a.settings.get("theme") == "light"
     win.teardown()
     win.close()

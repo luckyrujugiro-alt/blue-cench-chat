@@ -226,3 +226,24 @@ async def test_social_from_phone(web):
     # delete own post
     assert (await client.post(f"/api/posts/{pid}/delete", headers=H)).status_code == 200
     assert a.social.post(pid) is None
+
+
+async def test_voice_from_phone(web, tmp_path, monkeypatch):
+    import math
+    import struct
+
+    from bluecenchchat.core import voice
+    monkeypatch.setattr(voice.config, "data_dir", lambda: tmp_path)
+    a, b, client = web
+    ab, ba = await connect_and_accept(a, b)
+    await pair_client(a, client)
+    pcm = b"".join(struct.pack("<h", int(9000 * math.sin(i / 4))) for i in range(8000 * 2))
+    assert (await client.post(f"/api/messages/{ab}/voice", content=pcm)).status_code == 403  # header required
+    r = await client.post(f"/api/messages/{ab}/voice", content=pcm, headers=H)
+    assert r.status_code == 200, r.text
+    m = r.json()
+    assert m["kind"] == "voice" and m["preview"].startswith("Voice message")
+    await wait_for(lambda: b.repo.message(m["id"]) is not None)
+    w = await client.get(f"/api/voice/{m['id']}")
+    assert w.status_code == 200 and w.headers["content-type"] == "audio/wav" and w.content[:4] == b"RIFF"
+    assert (await client.post(f"/api/messages/{ab}/voice", content=pcm[:2000], headers=H)).status_code == 400

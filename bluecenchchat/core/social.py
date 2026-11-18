@@ -455,7 +455,8 @@ class SocialService:
     # ------------------------------------------------------------------ session hooks
     async def _hello(self, c: Contact) -> None:
         await self._send(c.id, {"t": "s_hello", **self.stats(), "note": self.note(), "follow": bool(c.i_follow),
-                                "tick": self.my_tick(), "rev": self._revocation_blobs()})
+                                "tick": self.my_tick(), "rev": self._revocation_blobs(),
+                                "xp": base64.b64encode(self.node.mesh.xpub()).decode()})
 
     async def on_session(self, contact_id: int) -> None:
         c = self.repo.contact(contact_id)
@@ -494,6 +495,7 @@ class SocialService:
             fields["tick_cert"] = tick if isinstance(tick, str) and vf.check_tick(
                 tick, contact.peer_user_id, contact.identity_pub) else ""
             repo.set_contact(contact.id, **fields)
+            self.node.mesh.remember_key(repo.contact(contact.id), msg.get("xp"))
             if fields["follows_me"] and not was_following:
                 self.node.notify("follow", f"{contact.name} follows you", "", "notify_requests",
                                  ref=str(contact.id), store=True)
@@ -602,7 +604,9 @@ class SocialService:
                     s.commit()
                 row = s.get(Post, pid)
                 likes, comments = row.likes, row.comments
-            self.node.notify("comment", f"{contact.name} commented", text[:120], "notify_messages", ref=pid)
+            mentioned = f"@{repo.account().username}".lower() in text.lower()
+            self.node.notify("comment", f"{contact.name} {'mentioned you in a comment' if mentioned else 'commented'}",
+                             text[:120], "notify_messages", ref=pid)
             await self._send(contact.id, {"t": "s_post_stats", "post_id": pid, "likes": likes, "comments": comments})
             self.node.bus.emit("social")
         elif t == "s_post_stats":

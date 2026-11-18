@@ -1,11 +1,14 @@
 """Private one-to-one messaging with delivery/read receipts and offline queue."""
 from __future__ import annotations
 
+import asyncio
+import base64
 import logging
 import time
 import uuid
 
 from .. import config
+from . import voice
 
 log = logging.getLogger("bluecenchchat.messaging")
 
@@ -42,31 +45,75 @@ class MessagingService:
         await self._deliver(msg)
         return msg.id
 
-    async def _relay(self, contact_id: int, obj: dict) -> bool:
-        """Send over Bluetooth/LAN if connected, otherwise over the internet (online mode)."""
+    async def send_voice(self, contact_id: int, pcm16: bytes, rate: int = voice.RATE) -> str:
+        """Record -> send a voice message. Works over Bluetooth, Wi-Fi and online."""
+        c = self.node.repo.contact(contact_id)
+        if not c or c.status != "accepted":
+            raise ValueError("You can only message accepted connections")
+        ulaw = voice.encode(voice.resample_to_8k(pcm16, rate))[: voice.MAX_BYTES]
+        if voice.duration(ulaw) < 0.5:
+            raise ValueError("Voice message is too short - hold to record")
+        mid = str(uuid.uuid4())
+        voice.save(mid, ulaw)
+        msg = self.node.repo.add_message(id=mid, contact_id=contact_id, direction="out", kind="voice",
+                                         body=f"{voice.duration(ulaw):.1f}", status="queued")
+        self.node.bus.emit("messages", contact_id)
+        await self._deliver(msg)
+        return msg.id
+
+    async def _relay(self, contact_id: int, obj: dict) -> str:
+        """Pick the best way to reach someone. Returns the route used ("" if none):
+        "direct" (Bluetooth / Wi-Fi session), "online" (internet), or "mesh" (carried by friends nearby)."""
         s = self.node.connections.session_for_contact(contact_id)
         if s:
             await s.session.send_json(obj)
-            return True
+            return "direct"
+        contact = self.node.repo.contact(contact_id)
         cloud = getattr(self.node, "cloud", None)
-        if cloud is not None:
-            return await cloud.send(self.node.repo.contact(contact_id), obj)
-        return False
+        if cloud is not None and await cloud.send(contact, obj):
+            return "online"
+        mesh = getattr(self.node, "mesh", None)
+        if mesh is not None and obj.get("t") in ("msg", "ack", "read", "msg_del", "react") and await mesh.send(contact, obj):
+            return "mesh"
+        return ""
 
     async def _deliver(self, msg) -> None:
         try:
-            ok = await self._relay(msg.contact_id,
-                                   {"t": "msg", "id": msg.id, "text": msg.body, "reply_to": msg.reply_to, "ts": msg.ts})
-            if not ok:
+            payload = {"t": "msg", "id": msg.id, "text": msg.body, "reply_to": msg.reply_to, "ts": msg.ts}
+            if msg.kind == "voice":
+                audio = voice.load(msg.id)
+                if audio is None:
+                    self.node.repo.set_message(msg.id, status="failed")
+                    return
+                payload.update(kind="voice", audio=base64.b64encode(audio).decode(), text=msg.body)
+            route = await self._relay(msg.contact_id, payload)
+            if not route:
                 return  # stays queued until the contact reconnects or we go online
-            self.node.repo.set_message(msg.id, status="sent")
+            self.node.repo.set_message(msg.id, status="relayed" if route == "mesh" else "sent")
         except Exception as exc:
             log.info("send failed, keeping queued: %s", exc)
             self.node.repo.set_message(msg.id, status="queued")
+            self._retry_soon(msg.contact_id)
         self.node.bus.emit("messages", msg.contact_id)
 
-    async def flush_queue(self, contact_id: int) -> None:
-        for m in self.node.repo.queued_messages(contact_id):
+    def _retry_soon(self, contact_id: int) -> None:
+        """A connection dropped mid-send (e.g. two devices dialled each other at once): try again shortly."""
+        pending = self.__dict__.setdefault("_retrying", set())
+        if contact_id in pending:
+            return
+        pending.add(contact_id)
+
+        async def later():
+            await asyncio.sleep(1.5)
+            pending.discard(contact_id)
+            if self.node.connections.session_for_contact(contact_id):
+                await self.flush_queue(contact_id)
+        asyncio.ensure_future(later())
+
+    async def flush_queue(self, contact_id: int, resend_unconfirmed: bool = True) -> None:
+        """Send everything waiting. Messages sent earlier but never confirmed are sent again;
+        the receiver ignores duplicates (same message ID) and confirms them."""
+        for m in self.node.repo.queued_messages(contact_id, include_unconfirmed=resend_unconfirmed):
             await self._deliver(m)
         # re-send read receipts for anything read while offline is unnecessary;
         # unread incoming will be acknowledged when the chat is opened.
@@ -134,16 +181,29 @@ class MessagingService:
             if not _valid_uuid(mid) or not isinstance(text, str) or not text or len(text) > config.MAX_TEXT_LEN:
                 return
             reply_to = msg.get("reply_to") if _valid_uuid(msg.get("reply_to") or "") else None
+            kind = "text"
+            if msg.get("kind") == "voice":
+                try:
+                    audio = base64.b64decode(str(msg.get("audio", "")), validate=True)
+                except Exception:
+                    return
+                if not audio or len(audio) > voice.MAX_BYTES:
+                    return
+                kind, text = "voice", f"{voice.duration(audio):.1f}"
             if repo.message(mid) is None:
+                if kind == "voice":
+                    voice.save(mid, audio)
                 # use local receive time - never trust a peer's clock for ordering
-                repo.add_message(id=mid, contact_id=contact.id, direction="in", kind="text", body=text,
+                repo.add_message(id=mid, contact_id=contact.id, direction="in", kind=kind, body=text,
                                  reply_to=reply_to, status="received", ts=time.time())
                 self.node.bus.emit("message", contact.id, mid)
                 self.node.bus.emit("messages", contact.id)
                 if self.active_contact != contact.id or not self.node.window_active():
-                    preview = text if len(text) < 90 else text[:87] + "..."
-                    self.node.notify("message", contact.name, preview, "notify_messages", ref=str(contact.id),
-                                     store=False)
+                    preview = ("🎤 Voice message " + voice.fmt(float(text))) if kind == "voice" else (
+                        text if len(text) < 90 else text[:87] + "...")
+                    mentioned = kind == "text" and f"@{repo.account().username}".lower() in text.lower()
+                    self.node.notify("message", f"{contact.name} mentioned you" if mentioned else contact.name,
+                                     preview, "notify_messages", ref=str(contact.id), store=mentioned)
             try:
                 await self._relay(contact.id, {"t": "ack", "id": mid})
             except Exception:

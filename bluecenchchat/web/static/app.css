@@ -4,12 +4,19 @@
   --bg: #FFFFFF; --rail: #FFFFFF; --surface: #FFFFFF; --surface2: #FAFAFA; --surface3: #EFEFEF;
   --border: #DBDBDB; --border2: #C7C7C7; --text: #0C1014; --muted: #737373; --faint: #8E8E8E;
   --primary: #0095F6; --primary2: #1877F2; --soft: #EFEFEF; --cyan: #0095F6; --ok: #22A559;
-  --warn: #E08E0B; --bad: #ED4956; --out: linear-gradient(135deg, #3797F0, #A033FF); --in: #EFEFEF;
+  --warn: #E08E0B; --bad: #ED4956; --out: linear-gradient(135deg, #1E6BFF, #00C2FF); --in: #EFEFEF;
   --tick: #0095F6; --ring: linear-gradient(45deg, #FEDA75, #FA7E1E, #D62976, #962FBF, #4F5BD5);
   --r: 14px; --tap: 44px;
   --st: env(safe-area-inset-top, 0px); --sb: env(safe-area-inset-bottom, 0px);
   --sl: env(safe-area-inset-left, 0px); --sr: env(safe-area-inset-right, 0px);
   color-scheme: light;
+}
+:root[data-theme="midnight"] {
+  /* Blue Cench signature: deep navy with electric-blue neon */
+  --bg: #060E24; --rail: #08132E; --surface: #0B1A3A; --surface2: #0F2147; --surface3: #162B57;
+  --border: #1B2F5C; --border2: #27407A; --text: #EAF2FF; --muted: #9DB2D9; --faint: #6A80AD;
+  --primary: #1E8BFF; --primary2: #43A2FF; --soft: #10306A; --cyan: #22D3EE; --in: #132651;
+  color-scheme: dark;
 }
 :root[data-theme="dark"] {
   --bg: #000000; --rail: #000000; --surface: #000000; --surface2: #121212; --surface3: #262626;
@@ -252,3 +259,25 @@ a { color: var(--primary2); }
 .field { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface2); margin-top: 8px; }
 .callrow { align-self: center; display: inline-flex; gap: 8px; align-items: center; background: var(--surface2); border: 1px solid var(--border); border-radius: 18px; padding: 6px 12px; font-size: 13px; color: var(--muted); margin: 4px 0; }
 .callrow.missed { color: var(--bad); }
+
+/* ---------- voice messages ---------- */
+.voice { display: inline-flex; align-items: center; gap: 10px; min-width: 210px; padding: 2px 0; }
+.vplay { width: 36px; height: 36px; border-radius: 50%; border: 0; display: grid; place-items: center; cursor: pointer;
+  background: rgba(255,255,255,.22); color: inherit; flex: none; }
+.b.in .vplay { background: var(--primary); color: #fff; }
+.wave { display: flex; align-items: center; gap: 2px; height: 28px; flex: 1; }
+.wave i { width: 3px; border-radius: 2px; background: currentColor; opacity: .38; transition: opacity .15s; }
+.wave i.on { opacity: 1; }
+.vt { font-size: 12px; opacity: .85; font-variant-numeric: tabular-nums; }
+.mic.rec { color: #fff; background: var(--bad); border-radius: 50%; animation: recpulse 1.2s infinite; position: relative; }
+.mic.rec::after { content: attr(data-t); position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%);
+  background: var(--bad); color: #fff; font-size: 11px; padding: 2px 6px; border-radius: 8px; }
+@keyframes recpulse { 0%,100% { box-shadow: 0 0 0 0 rgba(237,73,86,.5); } 50% { box-shadow: 0 0 0 8px rgba(237,73,86,0); } }
+/* ---------- "signal" typing indicator (Blue Cench's own) ---------- */
+.signal { display: inline-flex; align-items: center; gap: 3px; color: var(--primary); font-size: 12.5px; }
+.signal b { margin-left: 6px; font-weight: 600; }
+.signal i { width: 6px; height: 12px; border: 2px solid currentColor; border-left: 0; border-top-color: transparent;
+  border-bottom-color: transparent; border-radius: 0 12px 12px 0; opacity: .2; animation: beam 1.2s infinite; }
+.signal i:nth-child(2) { width: 9px; height: 18px; animation-delay: .2s; }
+.signal i:nth-child(3) { width: 12px; height: 24px; animation-delay: .4s; }
+@keyframes beam { 0%,100% { opacity: .15; } 40% { opacity: 1; } }

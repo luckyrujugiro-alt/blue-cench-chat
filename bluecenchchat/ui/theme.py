@@ -52,6 +52,21 @@ DARK = Palette(
     bubble_out="#3797F0", bubble_in="#262626",
 )
 
+# Blue Cench signature: deep navy with electric-blue neon (from the brand showcase)
+MIDNIGHT = Palette(
+    name="midnight",
+    bg="#060E24", sidebar="#08132E", surface="#0B1A3A", surface2="#0F2147", surface3="#162B57",
+    border="#1B2F5C", border_strong="#27407A",
+    text="#EAF2FF", muted="#9DB2D9", faint="#6A80AD",
+    primary="#1E8BFF", primary_hover="#43A2FF", primary_soft="#10306A",
+    cyan="#22D3EE", success="#22C55E", warning="#F5A524", danger="#FF5A6E",
+    bubble_out="#1E8BFF", bubble_in="#132651",
+)
+
+THEMES = {"light": LIGHT, "dark": DARK, "midnight": MIDNIGHT}
+THEME_NAMES = [("light", "Light"), ("dark", "Dark"), ("midnight", "Midnight Blue (signature)")]
+BRAND_GRADIENT = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1E6BFF, stop:1 #00C2FF)"
+
 VERIFIED_BLUE = "#0095F6"
 STORY_GRADIENT = "qlineargradient(x1:0, y1:1, x2:1, y2:0, stop:0 #FEDA75, stop:0.3 #FA7E1E, stop:0.55 #D62976, stop:0.8 #962FBF, stop:1 #4F5BD5)"
 
@@ -66,7 +81,7 @@ def palette() -> Palette:
 
 def set_theme(name: str, font_scale: int = 100) -> Palette:
     global _current, _scale
-    _current = DARK if name == "dark" else LIGHT
+    _current = THEMES.get(name, LIGHT)
     _scale = max(0.85, min(1.5, font_scale / 100))
     return _current
 
@@ -221,7 +236,7 @@ QLabel#Pill[tone="cyan"]    {{ background: rgba(34,211,238,0.13); color: {p.cyan
 
 /* ---------- chat ---------- */
 QFrame#BubbleOut {{ border-radius: 18px; border-bottom-right-radius: 6px;
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #3797F0, stop:1 #A033FF); }}
+    background: {BRAND_GRADIENT}; }}
 QFrame#BubbleIn {{ background: {p.bubble_in}; border: none; border-radius: 18px;
     border-bottom-left-radius: 6px; }}
 QFrame#BubbleOut QLabel {{ color: #FFFFFF; }}

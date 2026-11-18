@@ -196,6 +196,7 @@ class CloudService:
             self._tasks.append(asyncio.create_task(self._retry_later()))
             return
         try:
+            await self._pick_database()
             await self.publish_profile()
         except Exception as exc:  # noqa: BLE001
             self._set("error", f"Could not publish your profile: {exc}")
@@ -287,6 +288,22 @@ class CloudService:
             raise CloudError(f"Online database said {r.status_code}: {r.text[:200]}")
         return r.json() if r.content else None
 
+    async def _pick_database(self) -> None:
+        """The database may live in different regions; use the first one that exists."""
+        urls = [u for u in self.cfg.get("databaseURLs", []) if u] or [self.cfg["databaseURL"]]
+        if len(urls) == 1:
+            return
+        token = await self._token()
+        for u in urls:
+            try:
+                r = await self._http().get(f"{u.rstrip('/')}/users/{self.fuid}.json", params={"auth": token})
+            except httpx.HTTPError:
+                continue
+            if r.status_code != 404:
+                self.cfg["databaseURL"] = u
+                return
+        raise CloudError("The online database hasn't been created yet.")
+
     # ------------------------------------------------------------------ profile + directory
     async def publish_profile(self) -> None:
         acc = self.node.repo.account()
@@ -353,6 +370,8 @@ class CloudService:
         fields = {"username": p.get("username", "")[:40], "display_name": p.get("name", "")[:80],
                   "about": (p.get("about") or "")[:280],
                   "address": {"fuid": p["fuid"], "xpub": p["xpub"]}}
+        if c is not None:
+            fields["address"] = {**(c.address or {}), **fields["address"]}
         if c is None:
             c = self.node.repo.upsert_contact(p["uid"], pub, status="accepted", **fields)
             self.node.repo.log("social", f"Added {c.name} from online")
