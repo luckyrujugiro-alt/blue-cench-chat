@@ -313,9 +313,9 @@ class SignalIndicator(QWidget):
         super().__init__()
         self.name = ""
         self.phase = 0.0
-        self.setFixedHeight(26)
+        self.setFixedHeight(34)
         self.timer = QTimer(self)
-        self.timer.setInterval(50)
+        self.timer.setInterval(33)
         self.timer.timeout.connect(self._step)
         self.hide()
 
@@ -329,37 +329,71 @@ class SignalIndicator(QWidget):
         self.hide()
 
     def _step(self) -> None:
-        self.phase = (self.phase + 0.05) % 1.0
+        self.phase = (self.phase + 0.035) % 1.0
         self.update()
 
     def paintEvent(self, _e) -> None:
+        """Neon "Typing..." badge: glowing pill, chat bubble with pulsing arcs, dancing dots."""
+        import math
+
+        from PySide6.QtGui import QLinearGradient
+
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        pal = theme.palette()
-        c = QColor(pal.primary)
-        x0, cy = 30.0, self.height() / 2
-        # source dot
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(c)
-        p.drawEllipse(QRectF(x0 - 3, cy - 3, 6, 6))
-        for i in range(3):
-            t = (self.phase - i * 0.18) % 1.0
-            alpha = int(255 * (0.18 + 0.82 * max(0.0, 1 - abs(t - 0.35) * 2.4)))
-            col = QColor(c)
-            col.setAlpha(alpha)
-            pen = QPen(col, 2.2)
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            p.setPen(pen)
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            r = 5 + i * 4.5
-            path = QPainterPath()
-            path.arcMoveTo(QRectF(x0 - r, cy - r, 2 * r, 2 * r), -50)
-            path.arcTo(QRectF(x0 - r, cy - r, 2 * r, 2 * r), -50, 100)
-            p.drawPath(path)
-        p.setPen(QColor(pal.primary))
+        h = self.height()
+        name = (self.name or "").split()[0][:16]
+        text = f"{name} is typing" if name else "Typing"
         f = p.font()
-        f.setPointSizeF(f.pointSizeF() * 0.95)
         f.setBold(True)
+        f.setPointSizeF(max(8.5, f.pointSizeF()))
         p.setFont(f)
-        p.drawText(QRectF(52, 0, self.width() - 52, self.height()),
-                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, f"{self.name} is writing")
+        tw = p.fontMetrics().horizontalAdvance(text)
+        pill_w = h + 14 + tw + 46
+        x, y = 22.0, 1.0
+        pill = QRectF(x, y, pill_w, h - 2)
+        # glow
+        for i, a in ((6, 30), (4, 50), (2, 90)):
+            glow = QPen(QColor(30, 139, 255, a), i)
+            p.setPen(glow)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(pill, pill.height() / 2, pill.height() / 2)
+        bg = QLinearGradient(pill.topLeft(), pill.bottomRight())
+        bg.setColorAt(0, QColor("#040A1C"))
+        bg.setColorAt(1, QColor("#0B1A3A"))
+        p.setPen(QPen(QColor("#2E9BFF"), 1.4))
+        p.setBrush(bg)
+        p.drawRoundedRect(pill, pill.height() / 2, pill.height() / 2)
+        # chat bubble with three dots + pulsing arcs
+        cx, cy, r = x + h / 2, y + (h - 2) / 2, (h - 2) / 2 - 3
+        pulse = 0.5 + 0.5 * math.sin(self.phase * 2 * math.pi)
+        arc = QPen(QColor(46, 155, 255, int(120 + 120 * pulse)), 1.6)
+        arc.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(arc)
+        rr = r + 2.5 + pulse * 1.5
+        p.drawArc(QRectF(cx - rr, cy - rr, 2 * rr, 2 * rr), 30 * 16, 120 * 16)
+        p.drawArc(QRectF(cx - rr, cy - rr, 2 * rr, 2 * rr), 210 * 16, 120 * 16)
+        bubble = QPainterPath()
+        bubble.addRoundedRect(QRectF(cx - r, cy - r * 0.8, 2 * r, r * 1.5), r * 0.7, r * 0.7)
+        tail = QPainterPath()
+        tail.moveTo(cx - r * 0.55, cy + r * 0.55)
+        tail.lineTo(cx - r * 0.85, cy + r * 1.05)
+        tail.lineTo(cx - r * 0.1, cy + r * 0.62)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#E8EEFF"))
+        p.drawPath(bubble.united(tail))
+        p.setBrush(QColor("#1E6BFF"))
+        for i in range(3):
+            d = r * 0.22
+            p.drawEllipse(QRectF(cx - r * 0.55 + i * r * 0.55 - d / 2 + d * 0.1, cy - r * 0.05 - d / 2, d, d))
+        # label
+        p.setPen(QColor("#FFFFFF"))
+        p.drawText(QRectF(x + h + 4, y, tw + 4, h - 2), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                   text)
+        # dancing dots (bounce one after another, blue -> cyan)
+        dx = x + h + 10 + tw
+        for i, col in enumerate(("#1E8BFF", "#38BDF8", "#67E8F9")):
+            t = (self.phase * 2 - i * 0.18) % 1.0
+            jump = max(0.0, math.sin(t * math.pi * 2)) * 4.0
+            dr = 3.4
+            p.setBrush(QColor(col))
+            p.drawEllipse(QRectF(dx + i * 10, cy - dr - jump + 1, dr * 2, dr * 2))

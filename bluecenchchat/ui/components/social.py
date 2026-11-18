@@ -25,14 +25,12 @@ from .. import icons, theme
 from .widgets import Avatar, button, clear_layout, human_time, icon_label, label, tool_button
 
 
-def tick_icon(size: int = 16) -> QLabel:
-    lb = icon_label("badge-check", size, theme.VERIFIED_BLUE)
-    lb.setObjectName("Tick")
-    lb.setToolTip("Verified by Blue Cench Chat")
-    return lb
+def tick_icon(size: int = 16, kind: str = "verified") -> QLabel:
+    from .badges import seal_label
+    return seal_label(size, kind)
 
 
-def name_line(name: str, verified: bool, role: str = "h3", extra: str = "") -> QWidget:
+def name_line(name: str, verified: bool | str, role: str = "h3", extra: str = "") -> QWidget:
     w = QWidget()
     lay = QHBoxLayout(w)
     lay.setContentsMargins(0, 0, 0, 0)
@@ -40,21 +38,30 @@ def name_line(name: str, verified: bool, role: str = "h3", extra: str = "") -> Q
     lb = label(name, role)
     lb.setTextFormat(Qt.TextFormat.PlainText)
     lay.addWidget(lb)
-    if verified:
-        lay.addWidget(tick_icon(15 if role != "h1" else 20))
+    kind = verified if isinstance(verified, str) else ("verified" if verified else "")
+    if kind:
+        lay.addWidget(tick_icon(16 if role not in ("h1", "h2") else 20, kind))
+    if kind == "founder":
+        pill = QLabel("FOUNDER")
+        pill.setStyleSheet("background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #FFD54A, stop:1 #F59E0B);"
+                           f"color:#3A2500; font-weight:800; font-size:{theme.px(9)}px; letter-spacing:1px;"
+                           "border-radius:7px; padding:1px 6px;")
+        pill.setToolTip("Official Blue Cench Chat account")
+        lay.addWidget(pill)
     if extra:
         lay.addWidget(label(extra, "faint"))
     lay.addStretch(1)
     return w
 
 
-def ring_avatar(name: str, image: bytes | None, size: int, seed: str = "", ring: bool = True) -> QLabel:
-    """Avatar inside the Instagram gradient ring."""
+def ring_avatar(name: str, image: bytes | None, size: int, seed: str = "", ring: bool | str = True) -> QLabel:
+    """Avatar inside a painted ring: brand blue-violet (has a note/story), gold (founder), none."""
+    from .badges import ring_pixmap
     outer = QLabel()
     outer.setFixedSize(size + 8, size + 8)
-    if ring:
-        outer.setObjectName("StoryRing")
-        outer.setStyleSheet(f"border-radius:{(size + 8) // 2}px;")
+    kind = ring if isinstance(ring, str) else ("story" if ring else "")
+    if kind:
+        outer.setPixmap(ring_pixmap(size + 8, kind, width=3.5 if kind == "founder" else 3.0))
     lay = QHBoxLayout(outer)
     lay.setContentsMargins(4, 4, 4, 4)
     av = Avatar(size).set(name, image, seed=seed)
@@ -81,7 +88,7 @@ class NotesBar(QScrollArea):
         self.refresh()
 
     def _cell(self, name: str, image: bytes | None, seed: str, note: str, music: str, on_click,
-              caption: str | None = None) -> QWidget:
+              caption: str | None = None, clip: bytes | None = None) -> QWidget:
         cell = QWidget()
         cell.setFixedWidth(96)
         cell.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -107,6 +114,11 @@ class NotesBar(QScrollArea):
         nm.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(nm)
         cell.mousePressEvent = lambda _e: on_click()
+        if clip is not None:
+            from . import media
+            bubble.setCursor(Qt.CursorShape.PointingHandCursor)
+            bubble.setToolTip("Play the song on this note")
+            bubble.mousePressEvent = lambda _e: media.play_clip(clip)
         return cell
 
     def refresh(self) -> None:
@@ -119,7 +131,7 @@ class NotesBar(QScrollArea):
         people.sort(key=lambda c: -c.note_ts)
         for c in people[:30]:
             self.row.addWidget(self._cell(c.name, c.avatar, c.peer_user_id, c.note_text, c.note_music,
-                                          lambda c=c: ProfileDialog(self.win, c.id).exec()))
+                                          lambda c=c: ProfileDialog(self.win, c.id).exec(), clip=c.note_clip))
         self.row.addStretch(1)
 
 
@@ -142,6 +154,55 @@ def edit_note_dialog(win) -> None:
     m.addAction(icons.plain("music", 16, theme.palette().faint), QLineEdit.ActionPosition.LeadingPosition)
     lay.addWidget(t)
     lay.addWidget(m)
+    # a real song from this device, played to people who open your note
+    from . import media
+    song = {"data": False}
+    have = node.social.note_clip()
+    srow = QHBoxLayout()
+    slabel = label("Song attached" if have else "No song attached", "muted")
+    pick = button("Choose a song from this PC", "music")
+    play = button("Play", "play", "ghost")
+    play.setEnabled(bool(have))
+    drop = button("Remove song", "x", "ghost")
+    drop.setVisible(bool(have))
+    srow.addWidget(pick)
+    srow.addWidget(play)
+    srow.addWidget(drop)
+    srow.addStretch(1)
+    lay.addLayout(srow)
+    lay.addWidget(slabel)
+
+    def choose() -> None:
+        path, _ = QFileDialog.getOpenFileName(d, "Choose a song", "", "Audio (*.mp3 *.m4a *.aac *.ogg *.wav *.flac)")
+        if not path:
+            return
+        data = Path(path).read_bytes()
+        from ...core.social import looks_like_audio, trim_clip
+        if not looks_like_audio(data):
+            win.toast("That file doesn't look like a song", "warning")
+            return
+        try:
+            data = trim_clip(data)
+        except ValueError as exc:
+            win.toast(str(exc), "warning")
+            return
+        song["data"] = data
+        if not m.text().strip():
+            m.setText(Path(path).stem[:80])
+        slabel.setText(f"{Path(path).name} - {'first ~30 seconds' if len(data) >= 490_000 else 'ready'}")
+        play.setEnabled(True)
+        drop.setVisible(True)
+
+    def remove() -> None:
+        song["data"] = None
+        slabel.setText("No song attached")
+        play.setEnabled(False)
+        drop.setVisible(False)
+        media.stop()
+
+    pick.clicked.connect(choose)
+    play.clicked.connect(lambda: media.play_clip(song["data"] if song["data"] else node.social.note_clip()))
+    drop.clicked.connect(remove)
     row = QHBoxLayout()
     clear = button("Delete note", "trash-2", "ghost")
     share = button("Share", "send", "primary")
@@ -149,8 +210,16 @@ def edit_note_dialog(win) -> None:
     row.addStretch(1)
     row.addWidget(share)
     lay.addLayout(row)
-    share.clicked.connect(lambda: (win.bridge.run(node.social.set_note(t.text(), m.text())), d.accept()))
-    clear.clicked.connect(lambda: (win.bridge.run(node.social.set_note("", "")), d.accept()))
+
+    def do_share() -> None:
+        try:
+            win.bridge.run(node.social.set_note(t.text(), m.text(), song["data"]))
+        finally:
+            media.stop()
+            d.accept()
+
+    share.clicked.connect(do_share)
+    clear.clicked.connect(lambda: (media.stop(), win.bridge.run(node.social.set_note("", "", None)), d.accept()))
     d.exec()
 
 
@@ -167,7 +236,7 @@ class PostCard(QFrame):
         contact = None if mine else node.repo.contact_by_peer(post.author_uid)
         acc = node.repo.account()
         name = acc.display_name if mine else (contact.name if contact else post.author_uid)
-        verified = node.social.is_verified_me() if mine else bool(contact and node.social.is_verified(contact))
+        verified = node.social.badge() if mine else (node.social.badge(contact) if contact else "")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 10)
         lay.setSpacing(6)
@@ -324,7 +393,14 @@ class CreatePostDialog(QDialog):
         lay.addWidget(self.preview)
         pick = button("Select from computer", "image-plus", "primary")
         pick.clicked.connect(self._pick)
-        lay.addWidget(pick, 0, Qt.AlignmentFlag.AlignHCenter)
+        cam = button("Take photo", "camera")
+        cam.clicked.connect(self._camera)
+        prow = QHBoxLayout()
+        prow.addStretch(1)
+        prow.addWidget(pick)
+        prow.addWidget(cam)
+        prow.addStretch(1)
+        lay.addLayout(prow)
         self.caption = QPlainTextEdit()
         self.caption.setPlaceholderText("Write a caption…")
         self.caption.setMaximumHeight(110)
@@ -359,6 +435,16 @@ class CreatePostDialog(QDialog):
         self.preview.setPixmap(pm.scaled(460, 300, Qt.AspectRatioMode.KeepAspectRatio,
                                          Qt.TransformationMode.SmoothTransformation))
 
+    def _camera(self) -> None:
+        from .camera import capture_photo
+        data = capture_photo(self)
+        if data:
+            self.image = data
+            pm = QPixmap()
+            pm.loadFromData(data)
+            self.preview.setPixmap(pm.scaled(460, 300, Qt.AspectRatioMode.KeepAspectRatio,
+                                             Qt.TransformationMode.SmoothTransformation))
+
     def _share(self) -> None:
         text = self.caption.toPlainText()
         if not text.strip() and not self.image:
@@ -370,17 +456,65 @@ class CreatePostDialog(QDialog):
 
 
 # --------------------------------------------------------------------------- profiles
-def counts_row(posts: int, followers: int, following: int) -> QHBoxLayout:
+def counts_row(posts: int, followers: int, following: int, win=None) -> QHBoxLayout:
+    """posts · followers · following. With `win`, followers/following open the list of people."""
     row = QHBoxLayout()
     row.setSpacing(28)
     for n, what in ((posts, "posts"), (followers, "followers"), (following, "following")):
-        col = QVBoxLayout()
+        w = QWidget()
+        col = QVBoxLayout(w)
+        col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(0)
         col.addWidget(label(f"{n:,}", "h2"))
         col.addWidget(label(what, "muted"))
-        row.addLayout(col)
+        if win is not None and what != "posts":
+            w.setCursor(Qt.CursorShape.PointingHandCursor)
+            w.setToolTip(f"See your {what}")
+            w.mousePressEvent = lambda _e, what=what: people_dialog(win, what)
+        row.addWidget(w)
     row.addStretch(1)
     return row
+
+
+def people_dialog(win, which: str) -> None:
+    """Your followers or the people you follow, with follow / message buttons."""
+    node = win.node
+    d = QDialog(win)
+    d.setWindowTitle(which.title())
+    d.setMinimumSize(420, 520)
+    lay = QVBoxLayout(d)
+    lay.setContentsMargins(20, 18, 20, 16)
+    lay.addWidget(label(which.title(), "h2"))
+    people = [c for c in node.repo.contacts() if c.status != "blocked" and
+              (c.follows_me if which == "followers" else c.i_follow)]
+    sa = QScrollArea()
+    sa.setWidgetResizable(True)
+    sa.setFrameShape(QFrame.Shape.NoFrame)
+    host = QWidget()
+    lst = QVBoxLayout(host)
+    lst.setSpacing(8)
+    if not people:
+        lst.addWidget(label("Nobody yet." if which == "followers" else "You're not following anyone yet.", "muted"))
+    for c in people:
+        r = QHBoxLayout()
+        r.addWidget(Avatar(40).set(c.name, c.avatar, node.connections.is_online(c.id), c.peer_user_id))
+        col = QVBoxLayout()
+        col.setSpacing(0)
+        col.addWidget(name_line(c.name, node.social.badge(c)))
+        col.addWidget(label(f"@{c.username}", "faint"))
+        r.addLayout(col, 1)
+        f = button("Following" if c.i_follow else "Follow back", variant="following" if c.i_follow else "follow")
+        f.clicked.connect(lambda _=False, c=c: (win.bridge.run(node.social.follow(c.id, not c.i_follow)), d.accept()))
+        r.addWidget(f)
+        w = QWidget()
+        w.setLayout(r)
+        w.setCursor(Qt.CursorShape.PointingHandCursor)
+        w.mouseDoubleClickEvent = lambda _e, c=c: ProfileDialog(win, c.id).exec()
+        lst.addWidget(w)
+    lst.addStretch(1)
+    sa.setWidget(host)
+    lay.addWidget(sa, 1)
+    d.exec()
 
 
 class PostsGrid(QWidget):
@@ -450,10 +584,12 @@ class ProfileDialog(QDialog):
             return
         head = QHBoxLayout()
         head.setSpacing(24)
-        head.addWidget(ring_avatar(c.name, c.avatar, 96, c.peer_user_id, ring=bool(c.note_text or c.note_music)))
+        founder = node.social.badge(c) == "founder"
+        head.addWidget(ring_avatar(c.name, c.avatar, 96, c.peer_user_id,
+                                   ring="founder" if founder else bool(c.note_text or c.note_music)))
         col = QVBoxLayout()
         col.setSpacing(8)
-        col.addWidget(name_line(c.name, node.social.is_verified(c), "h2"))
+        col.addWidget(name_line(c.name, node.social.badge(c), "h2"))
         col.addWidget(label(f"@{c.username}  ·  {c.peer_user_id}", "muted"))
         col.addLayout(counts_row(c.posts_count, c.followers_count, c.following_count))
         btns = QHBoxLayout()
@@ -465,6 +601,12 @@ class ProfileDialog(QDialog):
             btns.addWidget(f)
         if node.social.is_admin() and c.status != "blocked":
             from .. import actions
+            from PySide6.QtWidgets import QMenu
+            sb = button("Suspend", "ban", "ghost")
+            smenu = QMenu(sb)
+            actions.fill_suspend_menu(win, smenu, c.peer_user_id, c.name)
+            sb.clicked.connect(lambda: smenu.exec(sb.mapToGlobal(QPoint(0, sb.height()))))
+            btns.addWidget(sb)
             ticked = node.social.is_verified(c)
             tb = button("Remove blue tick" if ticked else "Give blue tick", "badge-check",
                         "danger" if ticked else "primary")

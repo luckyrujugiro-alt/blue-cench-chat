@@ -19,9 +19,11 @@
   color-scheme: dark;
 }
 :root[data-theme="dark"] {
-  --bg: #000000; --rail: #000000; --surface: #000000; --surface2: #121212; --surface3: #262626;
-  --border: #262626; --border2: #363636; --text: #F5F5F5; --muted: #A8A8A8; --faint: #737373;
-  --primary: #0095F6; --primary2: #4CB5F9; --soft: #262626; --cyan: #4CB5F9; --in: #262626;
+  /* X-style "lights out": pure black, hairline borders, crisp text, bright blue */
+  --bg: #000000; --rail: #000000; --surface: #000000; --surface2: #16181C; --surface3: #202327;
+  --border: #2F3336; --border2: #3E4144; --text: #E7E9EA; --muted: #71767B; --faint: #5B6066;
+  --primary: #1D9BF0; --primary2: #1A8CD8; --soft: #16181C; --cyan: #1D9BF0; --in: #202327;
+  --out: #1D9BF0;
   color-scheme: dark;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -220,7 +222,11 @@ a { color: var(--primary2); }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
 /* ---------- Instagram-style social ---------- */
-.tick { color: var(--tick); display: inline-flex; margin-left: 3px; vertical-align: -2px; }
+.tick { width: 16px; height: 16px; margin-left: 4px; vertical-align: -3px; display: inline-block; }
+.msgs { background: url(/static/art/wall-light.png) repeat; background-size: 360px; }
+:root[data-theme="dark"] .msgs { background-image: url(/static/art/wall-dark.png); }
+:root[data-theme="midnight"] .msgs { background-image: url(/static/art/wall-midnight.png); }
+.av { background-size: cover; background-position: center; }
 .notes { display: flex; gap: 14px; overflow-x: auto; padding: 12px 14px 6px; scrollbar-width: none; }
 .notes::-webkit-scrollbar { display: none; }
 .note { flex: none; width: 78px; text-align: center; cursor: pointer; background: none; border: 0; padding: 0; }

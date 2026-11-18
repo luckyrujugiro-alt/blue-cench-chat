@@ -217,7 +217,7 @@ async def test_social_from_phone(web):
     assert comments[0]["text"] == "Nice!"
     # profiles
     me = (await client.get("/api/profile")).json()
-    assert me["followers"] == 1 and me["posts"] == 1 and me["tick"] is False
+    assert me["followers"] == 1 and me["posts"] == 1 and not me["tick"]
     other = (await client.get(f"/api/profile/{ab}")).json()
     assert other["i_follow"] and other["follows_me"] and other["posts_list"][0]["id"] == bp
     # blue tick needs 40 followers

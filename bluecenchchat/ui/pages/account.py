@@ -148,12 +148,22 @@ class ProfilePage(Page):
         self.avatar = Avatar(84)
         top.addWidget(self.avatar)
         col = QVBoxLayout()
-        b_pic = button("Change picture", "camera")
+        b_pic = button("Upload photo", "image-plus")
+        b_cam = button("Take photo", "camera")
+        b_char = button("Choose a character", "sparkles")
         b_rm = button("Remove picture", "x", "ghost")
         b_pic.clicked.connect(self._pick)
+        b_cam.clicked.connect(self._camera)
+        b_char.clicked.connect(self._character)
         b_rm.clicked.connect(self._remove_pic)
-        col.addWidget(b_pic)
-        col.addWidget(b_rm)
+        r1 = QHBoxLayout()
+        r1.addWidget(b_pic)
+        r1.addWidget(b_cam)
+        r2 = QHBoxLayout()
+        r2.addWidget(b_char)
+        r2.addWidget(b_rm)
+        col.addLayout(r1)
+        col.addLayout(r2)
         top.addLayout(col)
         top.addStretch(1)
         form.add(top)
@@ -212,11 +222,13 @@ class ProfilePage(Page):
         note = node.social.note()
         head = QHBoxLayout()
         head.setSpacing(28)
-        head.addWidget(ring_avatar(acc.display_name, acc.avatar, 110, acc.user_id, ring=bool(note["text"] or note["music"])))
+        founder = node.social.badge() == "founder"
+        head.addWidget(ring_avatar(acc.display_name, acc.avatar, 110, acc.user_id,
+                                   ring="founder" if founder else bool(note["text"] or note["music"])))
         col = QVBoxLayout()
         col.setSpacing(10)
         top = QHBoxLayout()
-        top.addWidget(name_line(acc.username, node.social.is_verified_me(), "h2"))
+        top.addWidget(name_line(acc.username, node.social.badge(), "h2"))
         new_post = button("New post", "square-plus", "primary")
         from ..components.social import CreatePostDialog
         new_post.clicked.connect(lambda: CreatePostDialog(win).exec())
@@ -225,7 +237,7 @@ class ProfilePage(Page):
         top.addWidget(nb)
         top.addWidget(new_post)
         col.addLayout(top)
-        col.addLayout(counts_row(st["posts"], st["followers"], st["following"]))
+        col.addLayout(counts_row(st["posts"], st["followers"], st["following"], win))
         nm = label(acc.display_name, "h3")
         nm.setTextFormat(Qt.TextFormat.PlainText)
         col.addWidget(nm)
@@ -268,7 +280,7 @@ class ProfilePage(Page):
         self._build_header()
         acc = self.node.repo.account()
         self._avatar_bytes = acc.avatar
-        self.avatar.set(acc.display_name, acc.avatar)
+        self.avatar.set(acc.display_name, acc.avatar, seed=acc.user_id)
         self.f_name.setText(acc.full_name)
         self.f_user.setText(acc.username)
         self.f_email.setText(acc.email)
@@ -284,13 +296,58 @@ class ProfilePage(Page):
         if path:
             try:
                 self._avatar_bytes = shrink_avatar(Path(path).read_bytes())
-                self.avatar.set(self.f_name.text(), self._avatar_bytes)
+                self.avatar.set(self.f_name.text(), self._avatar_bytes, seed=self.node.identity.user_id)
             except (OSError, AuthError) as exc:
                 self.err.setText(str(exc))
 
+    def _camera(self) -> None:
+        from ..components.camera import capture_photo
+        data = capture_photo(self)
+        if data:
+            try:
+                self._avatar_bytes = shrink_avatar(data)
+                self.avatar.set(self.f_name.text(), self._avatar_bytes, seed=self.node.identity.user_id)
+                self.win.toast("Photo taken - press Save to keep it")
+            except AuthError as exc:
+                self.err.setText(str(exc))
+
+    def _character(self) -> None:
+        """Pick one of the 12 Blue Cench characters as your picture."""
+        from PySide6.QtWidgets import QDialog, QGridLayout, QToolButton
+        from PySide6.QtGui import QIcon
+        from PySide6.QtCore import QSize
+        from ..components.characters import NAMES, character_png, draw_character
+        d = QDialog(self)
+        d.setWindowTitle("Choose a character")
+        lay = QVBoxLayout(d)
+        lay.setContentsMargins(22, 18, 22, 18)
+        lay.addWidget(label("Choose your character", "h2"))
+        lay.addWidget(label("Original Blue Cench characters - you can change any time.", "muted"))
+        g = QGridLayout()
+        g.setSpacing(10)
+        for i, nm in enumerate(NAMES):
+            b = QToolButton()
+            b.setIcon(QIcon(draw_character(i, 160)))
+            b.setIconSize(QSize(84, 84))
+            b.setText(nm)
+            b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet("QToolButton { border:none; border-radius:14px; padding:6px; }"
+                            f"QToolButton:hover {{ background:{theme.palette().surface3}; }}")
+
+            def choose(_=False, i=i):
+                self._avatar_bytes = character_png(i, 256)
+                self.avatar.set(self.f_name.text(), self._avatar_bytes, seed=self.node.identity.user_id)
+                d.accept()
+                self.win.toast("Character chosen - press Save to keep it")
+            b.clicked.connect(choose)
+            g.addWidget(b, i // 4, i % 4)
+        lay.addLayout(g)
+        d.exec()
+
     def _remove_pic(self) -> None:
         self._avatar_bytes = None
-        self.avatar.set(self.f_name.text(), None)
+        self.avatar.set(self.f_name.text(), None, seed=self.node.identity.user_id)
 
     def _save(self) -> None:
         name = " ".join(self.f_name.text().split())

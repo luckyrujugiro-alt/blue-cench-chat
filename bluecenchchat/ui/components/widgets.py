@@ -1,6 +1,8 @@
 """Reusable Blue Cench Chat interface components."""
 from __future__ import annotations
 
+import functools
+
 import time
 
 from PySide6.QtCore import (
@@ -286,6 +288,12 @@ class EmptyState(QWidget):
 _AVATAR_COLORS = ["#2F7BFF", "#22D3EE", "#8B5CF6", "#F59E0B", "#10B981", "#EF4444", "#EC4899", "#14B8A6"]
 
 
+@functools.lru_cache(maxsize=256)
+def _character(index: int, px: int) -> QPixmap:
+    from .characters import draw_character
+    return draw_character(index, px)
+
+
 class Avatar(QLabel):
     def __init__(self, size: int = 40) -> None:
         super().__init__()
@@ -309,15 +317,10 @@ class Avatar(QLabel):
         if image and src.loadFromData(image):
             p.drawPixmap(QRectF(0, 0, s, s), src, QRectF(src.rect()))
         else:
-            color = QColor(_AVATAR_COLORS[sum(map(ord, seed or name or "x")) % len(_AVATAR_COLORS)])
-            p.fillRect(QRectF(0, 0, s, s), color)
-            initials = "".join(w[0] for w in (name or "?").split()[:2]).upper() or "?"
-            f = QFont()
-            f.setPixelSize(int(s * 0.38))
-            f.setBold(True)
-            p.setFont(f)
-            p.setPen(QColor("white"))
-            p.drawText(QRectF(0, 0, s, s), Qt.AlignmentFlag.AlignCenter, initials)
+            # no photo: their own Blue Cench character, picked from their ID
+            from .characters import index_for
+            p.drawPixmap(QRectF(0, 0, s, s), _character(index_for(seed or name), int(s * dpr)),
+                         QRectF(0, 0, int(s * dpr), int(s * dpr)))
         p.setClipping(False)
         if online is not None:
             r = max(8, s * 0.26)

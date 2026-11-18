@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import time
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication
@@ -151,9 +152,22 @@ class VerifyPage(Page):
             msg.setTextFormat(Qt.TextFormat.PlainText)
             col.addWidget(msg)
         row.addLayout(col, 1)
+        sus = self.node.social.suspension(c.peer_user_id)
+        if sus:
+            row.addWidget(Pill("Suspended forever" if sus["forever"] else
+                               "Suspended until " + time.strftime("%d %b %H:%M", time.localtime(sus["until"])),
+                               "danger"))
         if r:
             tone = {"pending": "warning", "granted": "success", "declined": "neutral", "revoked": "danger"}[r.status]
             row.addWidget(Pill(r.status.title(), tone))
+        from PySide6.QtCore import QPoint
+        from PySide6.QtWidgets import QMenu
+        from .. import actions
+        sb = button("Suspend" if not sus else "Suspended", "ban", "ghost")
+        smenu = QMenu(sb)
+        actions.fill_suspend_menu(self.win, smenu, c.peer_user_id, c.name)
+        sb.clicked.connect(lambda: smenu.exec(sb.mapToGlobal(QPoint(0, sb.height()))))
+        row.addWidget(sb)
         view = button("Profile", variant="ghost")
         view.clicked.connect(lambda: ProfileDialog(self.win, c.id).exec())
         row.addWidget(view)

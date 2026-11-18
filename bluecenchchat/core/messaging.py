@@ -30,6 +30,7 @@ class MessagingService:
         self._typing_sent: dict[int, float] = {}
 
     async def send_text(self, contact_id: int, text: str, reply_to: str | None = None) -> str:
+        self.node.social._check_not_suspended()
         text = text.strip()
         if not text:
             raise ValueError("Message is empty")
@@ -47,6 +48,7 @@ class MessagingService:
 
     async def send_voice(self, contact_id: int, pcm16: bytes, rate: int = voice.RATE) -> str:
         """Record -> send a voice message. Works over Bluetooth, Wi-Fi and online."""
+        self.node.social._check_not_suspended()
         c = self.node.repo.contact(contact_id)
         if not c or c.status != "accepted":
             raise ValueError("You can only message accepted connections")
@@ -176,6 +178,8 @@ class MessagingService:
     async def on_message(self, contact, msg: dict) -> None:
         t = msg["t"]
         repo = self.node.repo
+        if t in ("msg", "react") and self.node.social.is_suspended(contact.peer_user_id):
+            return  # messages from a suspended account are dropped (and not confirmed)
         if t == "msg":
             mid, text = msg.get("id"), msg.get("text")
             if not _valid_uuid(mid) or not isinstance(text, str) or not text or len(text) > config.MAX_TEXT_LEN:

@@ -255,8 +255,8 @@ class ChatView(QWidget):
         self.name = label("", "h3")
         self.name.setTextFormat(Qt.TextFormat.PlainText)
         top.addWidget(self.name)
-        self.tick = icon_label("badge-check", 16, theme.VERIFIED_BLUE)
-        self.tick.setToolTip("Verified by Blue Cench Chat")
+        from ..components.badges import seal_label
+        self.tick = seal_label(16)
         top.addWidget(self.tick)
         self.verified = icon_label("shield-check", 15, p.success)
         self.verified.setToolTip("You checked this person's safety number")
@@ -306,8 +306,9 @@ class ChatView(QWidget):
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
-        host = QWidget()
-        host.setObjectName("PageInner")
+        from ..components.wallpaper import WallpaperHost
+        host = WallpaperHost(theme.palette)
+        host.setObjectName("ChatWall")
         self.msgs = QVBoxLayout(host)
         self.msgs.setContentsMargins(24, 16, 24, 16)
         self.msgs.setSpacing(4)
@@ -378,7 +379,11 @@ class ChatView(QWidget):
         self.avatar.set(c.name, c.avatar, s is not None, c.peer_user_id)
         self.name.setText(c.name)
         self.verified.setVisible(c.verified)
-        self.tick.setVisible(self.node.social.is_verified(c))
+        kind = self.node.social.badge(c)
+        self.tick.setVisible(bool(kind))
+        if kind:
+            from ..components.badges import seal_pixmap
+            self.tick.setPixmap(seal_pixmap(16, kind))
         can_call = s is not None and c.status == "accepted"
         self.b_voice.setEnabled(can_call)
         self.b_video.setEnabled(can_call and s.transport == "lan")
@@ -555,8 +560,10 @@ class ConversationItem(QWidget):
         nm = label(c.name, "h3")
         nm.setTextFormat(Qt.TextFormat.PlainText)
         top.addWidget(nm)
-        if node.social.is_verified(c):
-            top.addWidget(icon_label("badge-check", 14, theme.VERIFIED_BLUE))
+        kind = node.social.badge(c)
+        if kind:
+            from ..components.badges import seal_label
+            top.addWidget(seal_label(14, kind))
         if c.favorite:
             star = icon_label("star", 13, theme.palette().warning)
             star.setToolTip("Favorite - pinned to the top")

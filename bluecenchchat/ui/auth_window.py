@@ -46,14 +46,32 @@ def _err_text(exc: Exception) -> str:
 
 
 class BrandPanel(QFrame):
+    def paintEvent(self, e) -> None:
+        """The Blue Cench showcase photo, darkened on the left so the text stays readable."""
+        from PySide6.QtGui import QColor, QLinearGradient, QPainter
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        r = self.rect()
+        if not self._bg.isNull():
+            pm = self._bg.scaled(r.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                                 Qt.TransformationMode.SmoothTransformation)
+            # keep the phone (right side of the photo) in view
+            p.drawPixmap(r.width() - pm.width(), (r.height() - pm.height()) // 2, pm)
+        else:
+            p.fillRect(r, QColor("#040A1C"))
+        g = QLinearGradient(0, 0, r.width(), 0)
+        g.setColorAt(0, QColor(4, 10, 28, 250))
+        g.setColorAt(0.75, QColor(4, 10, 28, 236))
+        g.setColorAt(1, QColor(4, 10, 28, 150))
+        p.fillRect(r, g)
+        super().paintEvent(e)
+
     def __init__(self) -> None:
         super().__init__()
         p = theme.palette()
-        self.setStyleSheet(
-            f"BrandPanel {{ background: qradialgradient(cx:0.2, cy:0.15, radius:1.1, fx:0.2, fy:0.15, stop:0 #10306A, "
-            f"stop:0.45 #081A40, stop:1 #040A1C); border-right: 1px solid {p.border}; }} "
-            f"BrandPanel QLabel {{ color: #E7EEF9; background: transparent; }}"
-        )
+        self.setStyleSheet(f"BrandPanel {{ border-right: 1px solid {p.border}; }} "
+                           f"BrandPanel QLabel {{ color: #E7EEF9; background: transparent; }}")
+        self._bg = QPixmap(str(config.resource_path("assets", "login", "showcase.jpg")))
         self.setMinimumWidth(400)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(44, 44, 44, 40)

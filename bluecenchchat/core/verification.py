@@ -96,3 +96,22 @@ def check_revocation(blob: str) -> tuple[str, int] | None:
 def tick_time(blob: str) -> int:
     p = _open(blob)
     return int(p.get("ts", 0)) if p else 0
+
+
+# --------------------------------------------------------------------------- suspensions
+FOREVER = 2 ** 31 - 1
+
+
+def issue_suspension(verifier: crypto.Identity, uid: str, until: int, reason: str = "") -> str:
+    """Signed by the official account. until = unix time it ends (FOREVER = permanent, 0 = lifted).
+    The newest one (by ts) wins, so lifting a suspension is just issuing one with until=0."""
+    return _envelope(verifier, {"v": 1, "kind": "suspend", "uid": uid, "until": int(until),
+                                "reason": reason[:140], "ts": time.time()})
+
+
+def check_suspension(blob: str) -> dict | None:
+    p = _open(blob)
+    if p and p.get("kind") == "suspend" and isinstance(p.get("uid"), str) and isinstance(p.get("until"), int):
+        return {"uid": p["uid"], "until": p["until"], "reason": str(p.get("reason", ""))[:140],
+                "ts": float(p.get("ts", 0))}
+    return None

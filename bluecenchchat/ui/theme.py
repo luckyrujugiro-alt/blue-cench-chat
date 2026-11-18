@@ -42,14 +42,15 @@ LIGHT = Palette(
     bubble_out="#3797F0", bubble_in="#EFEFEF",
 )
 
+# X-style "lights out" dark: pure black, hairline grey borders, crisp white text, bright blue accents
 DARK = Palette(
     name="dark",
-    bg="#000000", sidebar="#000000", surface="#121212", surface2="#1A1A1A", surface3="#262626",
-    border="#262626", border_strong="#363636",
-    text="#F5F5F5", muted="#A8A8A8", faint="#737373",
-    primary="#0095F6", primary_hover="#1877F2", primary_soft="#0B2A44",
-    cyan="#4CB5F9", success="#22C55E", warning="#F5A524", danger="#ED4956",
-    bubble_out="#3797F0", bubble_in="#262626",
+    bg="#000000", sidebar="#000000", surface="#000000", surface2="#16181C", surface3="#202327",
+    border="#2F3336", border_strong="#3E4144",
+    text="#E7E9EA", muted="#71767B", faint="#5B6066",
+    primary="#1D9BF0", primary_hover="#1A8CD8", primary_soft="#031B2D",
+    cyan="#1D9BF0", success="#00BA7C", warning="#FFD400", danger="#F4212E",
+    bubble_out="#1D9BF0", bubble_in="#202327",
 )
 
 # Blue Cench signature: deep navy with electric-blue neon (from the brand showcase)

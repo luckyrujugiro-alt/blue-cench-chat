@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import io
 import logging
 import time
@@ -19,7 +20,7 @@ import uuid
 
 from sqlalchemy import delete, func, select
 
-from ..backend.models import Account, Contact, Post, PostComment, PostLike, Revocation, TickRequest
+from ..backend.models import Account, Contact, Post, PostComment, PostLike, Revocation, Suspension, TickRequest
 from . import verification as vf
 
 log = logging.getLogger("bluecenchchat.social")
@@ -27,6 +28,8 @@ log = logging.getLogger("bluecenchchat.social")
 MAX_IMAGE = 900_000
 MAX_CAPTION = 2200
 FEED_BATCH = 30
+STORY_TTL = 24 * 3600
+MAX_CLIP = 500_000            # ~30 s of a 128 kbps MP3: the song on your note
 
 
 def prepare_image(raw: bytes) -> bytes:
@@ -69,6 +72,20 @@ class SocialService:
             if only is None or s.contact_id in only:
                 yield s
 
+    def _take_clip(self, contact, msg: dict) -> None:
+        """Store the song attached to someone's note (MP3/M4A/OGG/WAV bytes, size-capped)."""
+        raw = msg.get("clip_b64")
+        if not isinstance(raw, str) or len(raw) > MAX_CLIP * 1.4:
+            return
+        try:
+            data = base64.b64decode(raw, validate=True)
+        except ValueError:
+            return
+        sha = hashlib.sha256(data).hexdigest()
+        if str(msg.get("clip", sha)) != sha or not looks_like_audio(data):
+            return
+        self.repo.set_contact(contact.id, note_clip=data, note_clip_sha=sha)
+
     def _cloud_ok(self, c) -> bool:
         cloud = getattr(self.node, "cloud", None)
         return bool(cloud is not None and cloud.can_reach(c))
@@ -98,12 +115,31 @@ class SocialService:
 
     def note(self) -> dict:
         st = self.node.settings
-        return {"text": st.get("note_text", ""), "music": st.get("note_music", ""), "ts": st.get("note_ts", 0)}
+        return {"text": st.get("note_text", ""), "music": st.get("note_music", ""), "ts": st.get("note_ts", 0),
+                "clip": st.get("note_clip_sha", "")}
 
-    async def set_note(self, text: str, music: str = "") -> None:
+    def note_clip(self) -> bytes | None:
+        raw = self.node.settings.get("note_clip_b64", "")
+        try:
+            return base64.b64decode(raw) if raw else None
+        except ValueError:
+            return None
+
+    async def set_note(self, text: str, music: str = "", clip: bytes | None | bool = False) -> None:
+        """clip: song bytes from this device, None to remove it, False to keep the current one."""
         text, music = text.strip()[:60], music.strip()[:80]
-        self.node.update_settings(note_text=text, note_music=music, note_ts=time.time() if (text or music) else 0)
+        changes = dict(note_text=text, note_music=music, note_ts=time.time() if (text or music) else 0)
+        if clip is None or (not text and not music):
+            changes.update(note_clip_b64="", note_clip_sha="")
+        elif clip:
+            clip = trim_clip(clip)
+            changes.update(note_clip_b64=base64.b64encode(clip).decode(),
+                           note_clip_sha=hashlib.sha256(clip).hexdigest())
+        self.node.update_settings(**changes)
         payload = {"t": "s_note", **self.note()}
+        data = self.note_clip()
+        if data:
+            payload["clip_b64"] = base64.b64encode(data).decode()
         for s in self._sessions():
             try:
                 await s.session.send_json(payload)
@@ -156,6 +192,16 @@ class SocialService:
 
     def is_verifier_contact(self, contact: Contact) -> bool:
         return vf.is_published_verifier(contact.identity_pub)
+
+    def badge(self, contact: Contact | None = None) -> str:
+        """"founder" (the official account), "verified" (blue tick) or "" - for drawing the right seal."""
+        if contact is None:
+            if self.admin_published():
+                return "founder"
+            return "verified" if self.is_verified_me() else ""
+        if self.is_verifier_contact(contact):
+            return "founder"
+        return "verified" if self.is_verified(contact) else ""
 
     async def request_tick(self, message: str = "") -> str:
         if self.is_verified_me():
@@ -270,6 +316,57 @@ class SocialService:
             s.commit()
         return True
 
+    # ------------------------------------------------------------------ suspensions
+    def store_suspension(self, blob: str) -> bool:
+        chk = vf.check_suspension(blob)
+        if not chk:
+            return False
+        with self.db.session() as s:
+            r = s.scalar(select(Suspension).where(Suspension.account_id == self.repo.account_id,
+                                                  Suspension.uid == chk["uid"]))
+            if r is None:
+                s.add(Suspension(account_id=self.repo.account_id, uid=chk["uid"], blob=blob, until=chk["until"],
+                                 reason=chk["reason"], ts=chk["ts"]))
+            elif chk["ts"] > r.ts:
+                r.blob, r.until, r.reason, r.ts = blob, chk["until"], chk["reason"], chk["ts"]
+            else:
+                return False
+            s.commit()
+        self.node.bus.emit("social")
+        return True
+
+    def suspension(self, uid: str) -> dict | None:
+        """Active suspension for this person, or None."""
+        with self.db.session() as s:
+            r = s.scalar(select(Suspension).where(Suspension.account_id == self.repo.account_id, Suspension.uid == uid))
+            if r is None or r.until <= time.time():
+                return None
+            return {"until": r.until, "reason": r.reason, "forever": r.until >= vf.FOREVER}
+
+    def is_suspended(self, uid: str) -> bool:
+        return self.suspension(uid) is not None
+
+    def my_suspension(self) -> dict | None:
+        return self.suspension(self.me)
+
+    def suspension_blobs(self) -> list[str]:
+        with self.db.session() as s:
+            return [r.blob for r in s.scalars(select(Suspension).where(Suspension.account_id == self.repo.account_id)
+                                              .order_by(Suspension.ts.desc()).limit(200))]
+
+    async def suspend(self, uid: str, hours: float | None, reason: str = "") -> None:
+        """Official account only. hours=None means forever; hours=0 lifts the suspension."""
+        if not self.is_admin():
+            raise PermissionError("Only the official account can suspend people")
+        until = vf.FOREVER if hours is None else (0 if hours == 0 else int(time.time() + hours * 3600))
+        blob = vf.issue_suspension(self.node.identity, uid, until, reason)
+        self.store_suspension(blob)
+        for c in self.repo.contacts():
+            if c.status != "blocked":
+                await self._send(c.id, {"t": "s_susp", "blobs": [blob]})
+        name = self.author_name(uid)
+        self.repo.log("security", f"{'Lifted suspension of' if until == 0 else 'Suspended'} {name}")
+
     def _revocation_blobs(self) -> list[str]:
         with self.db.session() as s:
             return [r.blob for r in s.scalars(select(Revocation).where(Revocation.account_id == self.repo.account_id)
@@ -317,7 +414,13 @@ class SocialService:
         await self._send(contact_id, {"t": "s_feed_req", "since": newest})
 
     # ------------------------------------------------------------------ posts
-    async def create_post(self, caption: str, image: bytes | None, music: str = "") -> str:
+    def _check_not_suspended(self) -> None:
+        sus = self.my_suspension()
+        if sus:
+            raise PermissionError(suspension_text(sus))
+
+    async def create_post(self, caption: str, image: bytes | None, music: str = "", story: bool = False) -> str:
+        self._check_not_suspended()
         caption = caption.strip()[:MAX_CAPTION]
         if not caption and not image:
             raise ValueError("Add a photo or write something")
@@ -328,13 +431,13 @@ class SocialService:
         pid = str(uuid.uuid4())
         with self.db.session() as s:
             s.add(Post(id=pid, account_id=self.repo.account_id, author_uid=self.me, caption=caption,
-                       music=music.strip()[:80], image=img))
+                       music=music.strip()[:80], image=img, story=bool(story)))
             s.commit()
         post = self.post(pid)
         for c in self.repo.contacts():
             if c.follows_me and (self.node.connections.is_online(c.id) or self._cloud_ok(c)):
                 await self._send(c.id, self._post_payload(post, c.peer_user_id))
-        self.repo.log("system", "You shared a new post")
+        self.repo.log("system", "You added to your story" if story else "You shared a new post")
         self.node.bus.emit("social")
         return pid
 
@@ -364,13 +467,46 @@ class SocialService:
         following.add(self.me)
         with self.db.session() as s:
             rows = s.scalars(select(Post).where(Post.account_id == self.repo.account_id,
-                                                Post.author_uid.in_(following))
+                                                Post.author_uid.in_(following), Post.story.is_(False))
                              .order_by(Post.created_at.desc()).limit(limit))
             return list(rows)
 
+    def stories(self) -> list[tuple[str, list[Post]]]:
+        """Active stories grouped by person: me first, then people with unseen stories, newest first."""
+        cutoff = time.time() - STORY_TTL
+        following = {c.peer_user_id for c in self.repo.contacts() if c.i_follow and c.status != "blocked"}
+        following.add(self.me)
+        with self.db.session() as s:
+            s.execute(delete(Post).where(Post.account_id == self.repo.account_id, Post.story.is_(True),
+                                         Post.created_at < cutoff))
+            s.commit()
+            rows = list(s.scalars(select(Post).where(Post.account_id == self.repo.account_id, Post.story.is_(True),
+                                                     Post.author_uid.in_(following))
+                                  .order_by(Post.created_at.asc())))
+        groups: dict[str, list[Post]] = {}
+        for p in rows:
+            groups.setdefault(p.author_uid, []).append(p)
+        order = sorted(groups.items(), key=lambda kv: (kv[0] != self.me, all(p.seen for p in kv[1]),
+                                                        -kv[1][-1].created_at))
+        return order
+
+    async def mark_story_seen(self, post_id: str) -> None:
+        p = self.post(post_id)
+        if not p or not p.story or p.seen:
+            return
+        with self.db.session() as s:
+            s.get(Post, post_id).seen = True
+            s.commit()
+        if p.author_uid != self.me:
+            c = self.repo.contact_by_peer(p.author_uid)
+            if c:
+                await self._send(c.id, {"t": "s_story_seen", "id": post_id})
+        self.node.bus.emit("social")
+
     def posts_by(self, uid: str) -> list[Post]:
         with self.db.session() as s:
-            return list(s.scalars(select(Post).where(Post.account_id == self.repo.account_id, Post.author_uid == uid)
+            return list(s.scalars(select(Post).where(Post.account_id == self.repo.account_id, Post.author_uid == uid,
+                                                     Post.story.is_(False))
                                   .order_by(Post.created_at.desc())))
 
     def author_name(self, uid: str) -> str:
@@ -383,7 +519,7 @@ class SocialService:
         with self.db.session() as s:
             liked = s.scalar(select(func.count()).where(PostLike.post_id == p.id, PostLike.liker_uid == for_uid)) or 0
         d = {"t": "s_post", "id": p.id, "caption": p.caption, "music": p.music, "ts": p.created_at,
-             "likes": p.likes, "comments": p.comments, "liked": bool(liked)}
+             "likes": p.likes, "comments": p.comments, "liked": bool(liked), "story": bool(p.story)}
         if p.image:
             d["img"] = base64.b64encode(p.image).decode()
         return d
@@ -456,6 +592,7 @@ class SocialService:
     async def _hello(self, c: Contact) -> None:
         await self._send(c.id, {"t": "s_hello", **self.stats(), "note": self.note(), "follow": bool(c.i_follow),
                                 "tick": self.my_tick(), "rev": self._revocation_blobs(),
+                                "susp": self.suspension_blobs(),
                                 "xp": base64.b64encode(self.node.mesh.xpub()).decode()})
 
     async def on_session(self, contact_id: int) -> None:
@@ -475,6 +612,9 @@ class SocialService:
         repo = self.repo
         if contact.status == "blocked":
             return
+        if t in ("s_post", "s_note", "s_comment", "s_clip", "s_follow", "s_tick_req") and \
+                self.is_suspended(contact.peer_user_id):
+            return  # suspended accounts can't post, comment or follow until the suspension ends
         if t == "s_hello":
             fields = {}
             for k_src, k_dst in (("followers", "followers_count"), ("following", "following_count"),
@@ -488,9 +628,17 @@ class SocialService:
             fields["note_text"] = str(note.get("text", ""))[:60]
             fields["note_music"] = str(note.get("music", ""))[:80]
             fields["note_ts"] = float(note.get("ts", 0) or 0)
+            clip_sha = str(note.get("clip", ""))[:64]
+            if not clip_sha:
+                fields["note_clip"], fields["note_clip_sha"] = None, ""
+            elif clip_sha != contact.note_clip_sha:
+                asyncio.ensure_future(self._send(contact.id, {"t": "s_clip_req"}))
             for blob in (msg.get("rev") or [])[:50]:
                 if isinstance(blob, str):
                     self._store_revocation(blob)
+            for blob in (msg.get("susp") or [])[:200]:
+                if isinstance(blob, str):
+                    self.store_suspension(blob)
             tick = msg.get("tick", "")
             fields["tick_cert"] = tick if isinstance(tick, str) and vf.check_tick(
                 tick, contact.peer_user_id, contact.identity_pub) else ""
@@ -514,7 +662,35 @@ class SocialService:
         elif t == "s_note":
             repo.set_contact(contact.id, note_text=str(msg.get("text", ""))[:60],
                              note_music=str(msg.get("music", ""))[:80], note_ts=float(msg.get("ts", 0) or 0))
+            self._take_clip(contact, msg)
             self.node.bus.emit("social")
+        elif t == "s_susp":
+            changed = False
+            for blob in (msg.get("blobs") or [])[:200]:
+                if isinstance(blob, str):
+                    changed = self.store_suspension(blob) or changed
+            if changed:  # pass it on so it spreads like news
+                for c in self.repo.contacts():
+                    if c.id != contact.id and c.status == "accepted" and self.node.connections.is_online(c.id):
+                        await self._send(c.id, {"t": "s_susp", "blobs": msg.get("blobs")[:200]})
+        elif t == "s_clip_req":
+            data = self.note_clip()
+            if data:
+                await self._send(contact.id, {"t": "s_clip", "clip": self.note()["clip"],
+                                              "clip_b64": base64.b64encode(data).decode()})
+        elif t == "s_clip":
+            self._take_clip(contact, msg)
+            self.node.bus.emit("social")
+        elif t == "s_story_seen":
+            p = self.post(str(msg.get("id", "")))
+            if p and p.author_uid == self.me and p.story:
+                ids = [x for x in (p.viewer_ids or "").split(",") if x]
+                if contact.peer_user_id not in ids and len(ids) < 2000:
+                    ids.append(contact.peer_user_id)
+                    with self.db.session() as s:
+                        s.get(Post, p.id).viewer_ids = ",".join(ids)
+                        s.commit()
+                    self.node.bus.emit("social")
         elif t == "s_feed_req":
             since = msg.get("since", 0) if isinstance(msg.get("since"), (int, float)) else 0
             with self.db.session() as s:
@@ -553,6 +729,7 @@ class SocialService:
                 p.likes = max(0, int(msg.get("likes", 0) or 0))
                 p.comments = max(0, int(msg.get("comments", 0) or 0))
                 p.liked = bool(msg.get("liked"))
+                p.story = bool(msg.get("story"))
                 if img is not None or p.image is None:
                     p.image = img
                 s.commit()
@@ -686,3 +863,28 @@ class SocialService:
             if isinstance(blob, str) and self._store_revocation(blob):
                 self.node.bus.emit("social")
                 self.node.bus.emit("contacts")
+
+
+def looks_like_audio(data: bytes) -> bool:
+    """MP3 (ID3 or frame sync), MP4/M4A, OGG, WAV or FLAC - refuse anything else."""
+    head = data[:12]
+    return (head[:3] == b"ID3" or (len(head) > 1 and head[0] == 0xFF and head[1] & 0xE0 == 0xE0)
+            or head[4:8] == b"ftyp" or head[:4] in (b"OggS", b"RIFF", b"fLaC"))
+
+
+def trim_clip(data: bytes) -> bytes:
+    """Keep a note's song small. MP3 is made of independent frames, so cutting it still plays."""
+    if len(data) <= MAX_CLIP:
+        return data
+    if data[:3] == b"ID3" or (data[0] == 0xFF and data[1] & 0xE0 == 0xE0):
+        return data[:MAX_CLIP]
+    raise ValueError("That song is too big for a note - pick an MP3, or a file under 500 KB.")
+
+
+def suspension_text(sus: dict) -> str:
+    if sus.get("forever"):
+        when = "permanently"
+    else:
+        when = "until " + time.strftime("%d %b %H:%M", time.localtime(sus["until"]))
+    reason = f" Reason: {sus['reason']}" if sus.get("reason") else ""
+    return f"Your account is suspended {when} by Blue Cench Chat.{reason}"

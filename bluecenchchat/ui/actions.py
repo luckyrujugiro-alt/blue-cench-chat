@@ -99,6 +99,34 @@ def toggle_tick(win, contact_id: int, after=None) -> None:
                        lambda _r: (win.toast(f"{c.name} is verified", "success"), after and after()))
 
 
+SUSPEND_CHOICES = [("4 hours", 4), ("1 day", 24), ("7 days", 24 * 7), ("30 days", 24 * 30), ("Forever", None)]
+
+
+def fill_suspend_menu(win, menu: QMenu, uid: str, name: str) -> None:
+    """Official account only: suspend for a while / forever, or lift it."""
+    node = win.node
+    cur = node.social.suspension(uid)
+    sub = menu.addMenu(icons.plain("ban", 16, "#F4212E"), "Suspend" if not cur else "Suspended - change")
+    for title, hours in SUSPEND_CHOICES:
+        sub.addAction(title, lambda h=hours, t=title: _do_suspend(win, uid, name, h, t))
+    if cur:
+        sub.addSeparator()
+        sub.addAction(icons.plain("rotate-cw", 16), "Lift suspension", lambda: _do_suspend(win, uid, name, 0, ""))
+
+
+def _do_suspend(win, uid: str, name: str, hours, title: str) -> None:
+    from PySide6.QtWidgets import QInputDialog
+    if hours == 0:
+        win.bridge.run(win.node.social.suspend(uid, 0), lambda _r: win.toast(f"{name} can use Blue Cench Chat again"))
+        return
+    reason, ok = QInputDialog.getText(win, f"Suspend {name}", f"Suspend {name} for {title.lower()}.\n"
+                                      "Reason (they will see it):")
+    if not ok:
+        return
+    win.bridge.run(win.node.social.suspend(uid, hours, reason.strip()),
+                   lambda _r: win.toast(f"{name} is suspended ({title.lower()})", "warning"))
+
+
 def contact_menu(win, contact, parent_widget) -> QMenu:
     node, bridge = win.node, win.bridge
     m = QMenu(parent_widget)
@@ -110,6 +138,7 @@ def contact_menu(win, contact, parent_widget) -> QMenu:
         m.addAction(icons.plain("badge-check", 16), "Verify safety number...",
                     lambda: VerifyDialog(win, node, node.repo.contact(contact.id)).exec())
         if node.social.is_admin():
+            fill_suspend_menu(win, m, contact.peer_user_id, contact.name)
             ticked = node.social.is_verified(contact)
             m.addAction(icons.plain("badge-check", 16, "#0095F6"),
                         "Remove blue tick" if ticked else "Give blue tick",

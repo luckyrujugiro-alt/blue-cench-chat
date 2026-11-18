@@ -56,7 +56,7 @@ class IdentityDialog(BaseDialog):
         acc = node.repo.account()
         code = node.identity_code()
         head = QHBoxLayout()
-        head.addWidget(Avatar(52).set(acc.display_name, acc.avatar))
+        head.addWidget(Avatar(52).set(acc.display_name, acc.avatar, seed=acc.user_id))
         col = QVBoxLayout()
         col.addWidget(label(acc.display_name, "h3"))
         col.addWidget(label(f"@{acc.username}  |  {acc.user_id}", "muted"))

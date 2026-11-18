@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 from .. import config
 from . import icons, theme
 from .bridge import Bridge
-from .components.widgets import Avatar, Toast, fade_in, label, tool_button
+from .components.widgets import Avatar, Toast, button, fade_in, label, tool_button
 from .dialogs.common import OnboardingDialog
 from .pages.account import HelpPage, NotificationsPage, ProfilePage, SecurityPage, SettingsPage
 from .pages.connections import ConnectionsPage
@@ -37,22 +37,23 @@ from .pages.web import WebPage
 
 NAV = [
     ("home", "Home", "house", HomePage),
-    ("dashboard", "Dashboard", "layout-dashboard", DashboardPage),
+    ("messages", "Messages", "message-square", MessagesPage),
     ("discover", "Discover People", "radar", DiscoverPage),
     ("everyone", "Everyone", "globe", EveryonePage),
     ("connections", "My Connections", "users", ConnectionsPage),
-    ("messages", "Messages", "message-square", MessagesPage),
+    ("notifications", "Notifications", "bell", NotificationsPage),
     ("transfers", "File Transfers", "arrow-left-right", TransfersPage),
+    ("history", "Transfer History", "history", HistoryPage),
     ("devices", "Bluetooth Devices", "bluetooth", DevicesPage),
     ("web", "Phones && Tablets", "smartphone", WebPage),
-    ("history", "Transfer History", "history", HistoryPage),
-    ("notifications", "Notifications", "bell", NotificationsPage),
     ("profile", "My Profile", "user", ProfilePage),
+    ("dashboard", "Dashboard", "layout-dashboard", DashboardPage),
     ("verify", "Verification", "badge-check", VerifyPage),
     ("security", "Security && Privacy", "shield", SecurityPage),
     ("settings", "Settings", "settings", SettingsPage),
     ("help", "Help && Support", "life-buoy", HelpPage),
 ]
+NAV_SECTIONS = {"transfers": "SHARE", "profile": "YOU"}
 
 
 class NavButton(QPushButton):
@@ -226,6 +227,36 @@ class MainWindow(QMainWindow):
         self._update_dlg = UpdateDialog(self)
         self._update_dlg.show()
 
+    def _confirm_sign_out(self) -> None:
+        """A proper sign-out sheet: who you are, what happens, and a clear choice."""
+        from PySide6.QtWidgets import QDialog
+        acc = self.node.repo.account()
+        d = QDialog(self)
+        d.setWindowTitle("Sign out")
+        d.setFixedWidth(400)
+        lay = QVBoxLayout(d)
+        lay.setContentsMargins(28, 26, 28, 22)
+        lay.setSpacing(10)
+        av = Avatar(72).set(acc.display_name, acc.avatar, seed=acc.user_id)
+        lay.addWidget(av, 0, Qt.AlignmentFlag.AlignHCenter)
+        t = label("End guest session?" if self.is_guest else f"Sign out of @{acc.username}?", "h2")
+        t.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(t)
+        msg = ("Everything from this guest session will be erased." if self.is_guest else
+               "Your chats, files and keys stay safely on this PC, encrypted with your password. "
+               "People can't reach you until you sign in again.")
+        m = label(msg, "muted", wrap=True)
+        m.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(m)
+        lay.addSpacing(6)
+        go = button("End session" if self.is_guest else "Sign out", "log-out", "danger")
+        stay = button("Stay signed in", variant="ghost")
+        go.clicked.connect(lambda: (d.accept(), self.sign_out_requested.emit()))
+        stay.clicked.connect(d.reject)
+        lay.addWidget(go)
+        lay.addWidget(stay)
+        d.exec()
+
     # ------------------------------------------------------------------ calls
     def start_call(self, contact_id: int, video: bool) -> None:
         if not self.node.connections.session_for_contact(contact_id):
@@ -264,6 +295,13 @@ class MainWindow(QMainWindow):
     def _update_admin_nav(self) -> None:
         if "verify" in self.nav:
             self.nav["verify"].setVisible(self.node.social.is_admin())
+        from ..core.social import suspension_text
+        sus = self.node.social.my_suspension()
+        banner = getattr(self, "_susp_banner", None)
+        if banner is not None:
+            banner.setVisible(bool(sus))
+            if sus:
+                banner.setText("  " + suspension_text(sus) + "  You can still read your chats.")
 
     # ------------------------------------------------------------------ layout
     def _build(self) -> None:
@@ -287,8 +325,10 @@ class MainWindow(QMainWindow):
         logo.setPixmap(QPixmap(str(config.resource_path("assets", "logo", "bluecenchchat.png"))).scaled(
             30, 30, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         brand.addWidget(logo)
-        name = QLabel("Blue Cench Chat")
+        name = QLabel(f'Blue <span style="color:{theme.palette().primary}">Cench</span>')
+        name.setTextFormat(Qt.TextFormat.RichText)
         name.setObjectName("SidebarBrand")
+        name.setToolTip("Blue Cench Chat")
         self._brand_name = name
         brand.addWidget(name)
         brand.addStretch(1)
@@ -308,9 +348,9 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.stack.setObjectName("Pages")
         for i, (key, text, ic, cls) in enumerate(NAV):
-            if key == "profile":
+            if key in NAV_SECTIONS:
                 sl.addSpacing(10)
-                eb = label("ACCOUNT", "eyebrow")
+                eb = label(NAV_SECTIONS[key], "eyebrow")
                 self._eyebrows.append(eb)
                 sl.addWidget(eb)
                 sl.addSpacing(2)
@@ -339,11 +379,20 @@ class MainWindow(QMainWindow):
         col.addWidget(self.me_id)
         ml.addLayout(col, 1)
         out = tool_button("log-out", "Sign out" if not self.is_guest else "End guest session (data is erased)")
-        out.clicked.connect(self.sign_out_requested.emit)
+        out.clicked.connect(self._confirm_sign_out)
         ml.addWidget(out)
         sl.addWidget(me)
         lay.addWidget(side)
-        lay.addWidget(self.stack, 1)
+        right = QVBoxLayout()
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(0)
+        self._susp_banner = QLabel()
+        self._susp_banner.setStyleSheet("background:#F4212E; color:#FFFFFF; font-weight:700; padding:10px 16px;")
+        self._susp_banner.setWordWrap(True)
+        self._susp_banner.hide()
+        right.addWidget(self._susp_banner)
+        right.addWidget(self.stack, 1)
+        lay.addLayout(right, 1)
         self.setCentralWidget(root)
         self._me_out = out
         self._me_card = me
@@ -378,7 +427,7 @@ class MainWindow(QMainWindow):
 
     def refresh_identity(self) -> None:
         acc = self.node.repo.account()
-        self.me_avatar.set(acc.display_name, acc.avatar, True)
+        self.me_avatar.set(acc.display_name, acc.avatar, True, acc.user_id)
         self.me_name.setText(acc.display_name if not self.is_guest else f"{acc.display_name} (guest)")
         self.me_id.setText(acc.user_id)
 

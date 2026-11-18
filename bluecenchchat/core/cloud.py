@@ -320,6 +320,8 @@ class CloudService:
             "tick": self.node.social.my_tick(), "followers": st["followers"], "following": st["following"],
             "posts": st["posts"], "note": self.node.social.note().get("text", "")[:60],
             "avatar": avatar, "seen": {".sv": "timestamp"}, "on": True, "v": config.APP_VERSION,
+            # the official account publishes its signed suspensions so they reach everyone online
+            **({"susp": self.node.social.suspension_blobs()[:200]} if self.node.social.is_admin() else {}),
         })
 
     async def _heartbeat_loop(self) -> None:
@@ -344,6 +346,9 @@ class CloudService:
                 continue
             p = {**p, "fuid": fuid}
             self._profiles[fuid] = (time.time(), p)
+            for blob in (p.get("susp") or [])[:200] if isinstance(p.get("susp"), list) else []:
+                if isinstance(blob, str):
+                    self.node.social.store_suspension(blob)  # only counts if signed by the official key
             people.append(p)
         people.sort(key=lambda p: -(p.get("seen") or 0))
         self._directory = (time.time(), people)

@@ -70,7 +70,9 @@ async function postForm(path, form) {
   if (!r.ok) throw new Error((data && data.detail) || ("Error " + r.status));
   return data;
 }
-const tick = (on) => on ? h("span", { class: "tick", title: "Verified" }, icon("badge-check", "sm")) : null;
+const tick = (on) => on ? h("img", { class: "tick", alt: on === "founder" ? "Founder" : "Verified",
+  title: on === "founder" ? "Founder of Blue Cench Chat" : "Verified by Blue Cench Chat",
+  src: on === "founder" ? "/static/art/seal-founder.png" : "/static/art/seal.png" }) : null;
 function toast(text, tone) {
   const host = document.getElementById("toast-host");
   const ic = { ok: ["circle-check", "ok"], err: ["circle-alert", "bad"], warn: ["triangle-alert", "warn"] }[tone] || ["info", "cyan"];
@@ -100,12 +102,17 @@ function dur(s) {
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
 const COLORS = ["#2F7BFF", "#22D3EE", "#8B5CF6", "#F59E0B", "#10B981", "#EF4444", "#EC4899", "#14B8A6"];
+function characterIndex(seed) {  // same pick as the PC app
+  let n = 0;
+  [...seed].forEach((ch, i) => { n += (i + 1) * ch.charCodeAt(0); });
+  return n % 12;
+}
 function avatar(c, cls, online) {
   const seed = (c.uid || c.name || "x");
   let sum = 0; for (const ch of seed) sum += ch.charCodeAt(0);
   const el = h("div", { class: "av " + (cls || ""), style: `background-color:${COLORS[sum % COLORS.length]}` });
   if (c.has_avatar) el.style.backgroundImage = `url(/api/avatar/${c.id})`;
-  else el.append((c.name || "?").split(/\s+/).slice(0, 2).map((w) => w[0] || "").join("").toUpperCase() || "?");
+  else el.style.backgroundImage = `url(/static/art/c${characterIndex(c.uid || c.name || "x")}.png)`;  // their Blue Cench character
   if (online !== undefined) el.append(h("i", { class: "dot" + (online ? " on" : "") }));
   return el;
 }

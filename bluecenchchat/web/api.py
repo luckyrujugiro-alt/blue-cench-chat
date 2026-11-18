@@ -64,7 +64,7 @@ def _contact(node, c) -> dict:
         "id": c.id, "uid": c.peer_user_id, "name": c.name, "username": c.username, "about": c.about,
         "status": c.status, "verified": c.verified, "favorite": c.favorite, "online": s is not None,
         "transport": node.transport_label(s.transport) if s else "", "last_seen": c.last_seen,
-        "has_avatar": bool(c.avatar), "tick": node.social.is_verified(c), "i_follow": c.i_follow,
+        "has_avatar": bool(c.avatar), "tick": node.social.badge(c), "i_follow": c.i_follow,
         "follows_me": c.follows_me, "followers": c.followers_count, "following": c.following_count,
         "posts": c.posts_count, "note": c.note_text, "music": c.note_music,
     }
@@ -76,7 +76,7 @@ def _post(node, p) -> dict:
     acc = node.repo.account()
     return {"id": p.id, "mine": me, "author": acc.display_name if me else (c.name if c else p.author_uid),
             "author_id": c.id if c else None, "uid": p.author_uid,
-            "tick": node.social.is_verified_me() if me else bool(c and node.social.is_verified(c)),
+            "tick": node.social.badge() if me else (node.social.badge(c) if c else ""),
             "caption": p.caption, "music": p.music, "has_image": bool(p.image), "ts": p.created_at,
             "likes": p.likes, "comments": p.comments, "liked": p.liked, "saved": p.saved}
 
@@ -443,7 +443,7 @@ def create_app(comp: WebCompanion) -> FastAPI:
         people.sort(key=lambda c: -c.note_ts)
         return {"me": {"name": acc.display_name, **mine},
                 "people": [{"id": c.id, "name": c.name, "note": c.note_text, "music": c.note_music,
-                            "has_avatar": bool(c.avatar), "tick": node.social.is_verified(c)} for c in people[:40]]}
+                            "has_avatar": bool(c.avatar), "tick": node.social.badge(c)} for c in people[:40]]}
 
     @app.post("/api/note")
     async def set_note(body: NoteIn, dev=auth):
@@ -517,7 +517,7 @@ def create_app(comp: WebCompanion) -> FastAPI:
                         "online": cloud.is_recent(p), "id": c.id if c else None,
                         "i_follow": bool(c and c.i_follow), "follows_me": bool(c and c.follows_me),
                         "blocked": bool(c and c.status == "blocked"), "uid": p["uid"],
-                        "tick": bool(c and node.social.is_verified(c))})
+                        "tick": (node.social.badge(c) if c else "") or ("verified" if cloud.profile_verified(p) else "")})
         return {"online": True, "status": "online", "people": out[:300]}
 
     @app.post("/api/everyone/{fuid}/open")
@@ -536,7 +536,7 @@ def create_app(comp: WebCompanion) -> FastAPI:
         acc = node.repo.account()
         st = node.social.stats()
         return {"name": acc.display_name, "username": acc.username, "uid": acc.user_id, "about": acc.about,
-                "tick": node.social.is_verified_me(), "admin": node.social.is_admin(), **st,
+                "tick": node.social.badge(), "admin": node.social.is_admin(), **st,
                 "note": node.social.note(), "need": vf.MIN_FOLLOWERS_FOR_REQUEST,
                 "tick_requested": bool(node.settings.get("tick_request")),
                 "posts_list": [_post(node, p) for p in node.social.posts_by(acc.user_id)]}

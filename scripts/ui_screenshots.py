@@ -154,6 +154,8 @@ async def scenario(out: Path, mode: str) -> None:
     for i, key in enumerate(pages, 1):
         if key == "messages":
             win.open_chat(ab)
+            await asyncio.sleep(0.3)
+            win.pages["messages"].chat.show_typing(True)
         elif key == "connections":
             win.navigate(key)
             win.pages["connections"].show_requests()

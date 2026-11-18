@@ -101,6 +101,8 @@ class Contact(Base):
     note_text: Mapped[str] = mapped_column(String(80), default="")
     note_music: Mapped[str] = mapped_column(String(80), default="")
     note_ts: Mapped[float] = mapped_column(Float, default=0.0)
+    note_clip: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)   # song from their device
+    note_clip_sha: Mapped[str] = mapped_column(String(64), default="")
     tick_cert: Mapped[str] = mapped_column(Text, default="")            # verified blue-tick certificate
 
     @property
@@ -245,6 +247,9 @@ class Post(Base):
     liked: Mapped[bool] = mapped_column(Boolean, default=False)       # liked by me
     saved: Mapped[bool] = mapped_column(Boolean, default=False)
     received_at: Mapped[float] = mapped_column(Float, default=time.time)
+    story: Mapped[bool] = mapped_column(Boolean, default=False)      # 24-hour story instead of a feed post
+    seen: Mapped[bool] = mapped_column(Boolean, default=False)       # I've watched this story
+    viewer_ids: Mapped[str] = mapped_column(Text, default="")        # who watched my story (comma list)
 
 
 class PostLike(Base):
@@ -287,6 +292,21 @@ class TickRequest(Base):
     cert: Mapped[str] = mapped_column(Text, default="")
     delivered: Mapped[bool] = mapped_column(Boolean, default=False)
     ts: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class Suspension(Base):
+    """Signed suspensions from the official account (gossiped like revocations; newest wins)."""
+
+    __tablename__ = "suspensions"
+    __table_args__ = (UniqueConstraint("account_id", "uid"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
+    uid: Mapped[str] = mapped_column(String(20))
+    blob: Mapped[str] = mapped_column(Text)
+    until: Mapped[int] = mapped_column(Integer, default=0)
+    reason: Mapped[str] = mapped_column(String(140), default="")
+    ts: Mapped[float] = mapped_column(Float, default=0.0)
 
 
 class Revocation(Base):

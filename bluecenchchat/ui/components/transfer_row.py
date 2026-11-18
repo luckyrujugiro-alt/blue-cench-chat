@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout
 
 from .. import icons, system, theme
@@ -23,6 +23,63 @@ STATUS_TEXT = {
     "rejected": ("Declined", "neutral"),
     "interrupted": ("Interrupted - resumes on reconnect", "warning"),
 }
+
+
+TYPE_COLORS = {  # file-type tile gradients
+    "video": ("#7C4DFF", "#00C2FF"), "image": ("#00BA7C", "#1D9BF0"), "audio": ("#F59E0B", "#F4212E"),
+    "archive": ("#64748B", "#334155"), "doc": ("#1E6BFF", "#00C2FF"), "app": ("#0F2147", "#1E8BFF"),
+    "other": ("#475569", "#1E293B"),
+}
+KINDS = {
+    "video": {".mp4", ".mkv", ".mov", ".avi", ".webm"}, "image": {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"},
+    "audio": {".mp3", ".m4a", ".wav", ".ogg", ".flac", ".aac"}, "archive": {".zip", ".rar", ".7z", ".tar", ".gz"},
+    "doc": {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".md"},
+    "app": {".exe", ".msi", ".apk", ".iso"},
+}
+
+
+def type_tile(label_text: str, size: int = 44) -> QPixmap:
+    """Rounded gradient tile with the file extension (MP4, ZIP, PDF...)."""
+    ext = Path(label_text).suffix.lower()
+    kind = next((k for k, exts in KINDS.items() if ext in exts), "other")
+    if label_text.endswith(")") or not ext:  # folders / multi-file bundles
+        kind, ext = "app", ".dir"
+    a, b = TYPE_COLORS[kind]
+    pm = QPixmap(size * 2, size * 2)
+    pm.setDevicePixelRatio(2)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    g = QLinearGradient(0, 0, size, size)
+    g.setColorAt(0, QColor(a))
+    g.setColorAt(1, QColor(b))
+    path = QPainterPath()
+    path.addRoundedRect(QRectF(0, 0, size, size), 12, 12)
+    p.fillPath(path, g)
+    f = QFont()
+    f.setBold(True)
+    f.setPixelSize(int(size * (0.30 if len(ext) <= 4 else 0.24)))
+    p.setFont(f)
+    p.setPen(QColor("#FFFFFF"))
+    p.drawText(QRectF(0, 0, size, size), Qt.AlignmentFlag.AlignCenter,
+               "FILES" if ext == ".dir" else (ext[1:5].upper() or "FILE"))
+    p.end()
+    return pm
+
+
+def rounded(pm: QPixmap, radius: int = 14) -> QPixmap:
+    out = QPixmap(pm.size())
+    out.setDevicePixelRatio(pm.devicePixelRatio())
+    out.fill(Qt.GlobalColor.transparent)
+    p = QPainter(out)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    path = QPainterPath()
+    w, h = pm.width() / pm.devicePixelRatio(), pm.height() / pm.devicePixelRatio()
+    path.addRoundedRect(QRectF(0, 0, w, h), radius, radius)
+    p.setClipPath(path)
+    p.drawPixmap(0, 0, pm)
+    p.end()
+    return out
 
 
 class TransferRow(QFrame):
@@ -61,6 +118,13 @@ class TransferRow(QFrame):
         lay.addWidget(self.preview)
         self.bar = QProgressBar()
         self.bar.setRange(0, 1000)
+        if compact:
+            self.bar.setTextVisible(False)
+            self.bar.setFixedHeight(6)
+            self.bar.setStyleSheet(
+                f"QProgressBar {{ background:{theme.palette().surface3}; border:none; border-radius:3px; }}"
+                "QProgressBar::chunk { border-radius:3px; background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+                " stop:0 #1E6BFF, stop:1 #00C2FF); }")
         lay.addWidget(self.bar)
         bottom = QHBoxLayout()
         self.stats = label("", "faint")
@@ -116,12 +180,23 @@ class TransferRow(QFrame):
         p = theme.palette()
         c = self.node.repo.contact(t.contact_id)
         name = c.name if c else "Unknown"
-        self.icon.setPixmap(icons.pixmap(system.file_icon_name(t.label), 20, p.cyan if t.direction == "in" else p.primary_hover))
+        if self.compact:
+            self.icon.setPixmap(type_tile(t.label, 40))
+            self.icon.setStyleSheet("background: transparent;")
+        else:
+            self.icon.setPixmap(icons.pixmap(system.file_icon_name(t.label), 20,
+                                             p.cyan if t.direction == "in" else p.primary_hover))
         self.title.setText(t.label)
         arrow = "from" if t.direction == "in" else "to"
-        self.sub.setText(f"{'Receiving' if t.direction == 'in' else 'Sending'} {arrow} {name}  |  "
-                         f"{len(t.files)} file{'s' if len(t.files) != 1 else ''}  |  {human_size(t.total_bytes)}")
-        if t.transport:
+        nfiles = f"{len(t.files)} file{'s' if len(t.files) != 1 else ''}"
+        if self.compact:  # in a chat the person is obvious - keep it short
+            self.sub.setText(f"{human_size(t.total_bytes)}  ·  {nfiles}")
+        else:
+            self.sub.setText(f"{'Receiving' if t.direction == 'in' else 'Sending'} {arrow} {name}  |  "
+                             f"{nfiles}  |  {human_size(t.total_bytes)}")
+        if t.transport and self.compact:
+            self.transport.hide()
+        elif t.transport:
             self.transport.setText(self.node.transport_label(t.transport))
             self.transport.set_tone("cyan" if t.transport == "lan" else "primary")
             self.transport.show()
@@ -144,6 +219,8 @@ class TransferRow(QFrame):
         if t.status == "active":
             parts.append(f"{human_size(st['speed'])}/s")
             parts.append(f"{human_duration(st['eta'])} left")
+        if self.compact and t.transport:
+            parts.append("via " + self.node.transport_label(t.transport))
         if t.error and t.status not in ("completed", "active"):
             parts.append(t.error)
         dups = sum(1 for f in t.files if f.get("status") == "duplicate")
@@ -161,7 +238,10 @@ class TransferRow(QFrame):
         self._maybe_preview(t)
 
     def _maybe_preview(self, t) -> None:
-        if self._preview_done or t.status != "completed" or len(t.files) != 1:
+        """Photos show straight away when sending (we have the file) and as soon as they arrive."""
+        if self._preview_done or len(t.files) != 1:
+            return
+        if t.direction == "in" and t.status != "completed":
             return
         f = t.files[0]
         path = f.get("dest_path") if t.direction == "in" else f.get("src_path")
@@ -171,7 +251,11 @@ class TransferRow(QFrame):
         if pm.isNull():
             return
         self._preview_done = True
-        self.preview.setPixmap(pm.scaled(240, 150, Qt.AspectRatioMode.KeepAspectRatio,
-                                         Qt.TransformationMode.SmoothTransformation))
-        self.preview.setStyleSheet("border-radius: 8px;")
+        box = 300 if self.compact else 240
+        pm = pm.scaled(box, int(box * 0.75), Qt.AspectRatioMode.KeepAspectRatio,
+                       Qt.TransformationMode.SmoothTransformation)
+        self.preview.setPixmap(rounded(pm, 14))
+        self.preview.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.preview.setToolTip("Open photo")
+        self.preview.mousePressEvent = lambda _e, path=path: system.open_path(path)
         self.preview.show()

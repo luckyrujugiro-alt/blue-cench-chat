@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from .. import theme
 from ..components.social import CreatePostDialog, NotesBar, PostCard, ProfileDialog, edit_note_dialog, name_line
-from ..components.widgets import Avatar, Card, EmptyState, Page, button, clear_layout, icon_label, label
+from ..components.widgets import Avatar, Card, EmptyState, Page, button, clear_layout, icon_label, label, tool_button
 
 FEED_W = 600
 SIDE_W = 330
@@ -14,11 +14,19 @@ SIDE_W = 330
 
 class HomePage(Page):
     def __init__(self, win) -> None:
-        super().__init__("Home", "Posts and notes from people you follow - nearby, or online.")
+        super().__init__("", "")
         self.win, self.node, self.bridge = win, win.node, win.bridge
-        new = button("New post", "square-plus", "primary", "Create a post (Ctrl+P)")
-        new.clicked.connect(lambda: CreatePostDialog(win).exec())
-        self.actions.addWidget(new)
+        self.title_label.hide()
+        # icon bar instead of a "Home" heading
+        for ic, tip, fn in (("square-plus", "New post (Ctrl+P)", lambda: CreatePostDialog(win).exec()),
+                            ("circle-plus", "Add to your story", lambda: self._new_story()),
+                            ("message-square", "Messages (Ctrl+M)", lambda: win.navigate("messages")),
+                            ("bell", "Notifications", lambda: win.navigate("notifications")),
+                            ("globe", "Everyone online", lambda: win.navigate("everyone"))):
+            b = tool_button(ic, tip, 22)
+            b.setFixedSize(40, 40)
+            b.clicked.connect(fn)
+            self.actions.addWidget(b)
 
         # everything sits in one centred column, so wide screens don't leave things floating
         outer = QHBoxLayout()
@@ -106,7 +114,7 @@ class HomePage(Page):
         top.addWidget(Avatar(52).set(acc.display_name, acc.avatar, seed=acc.user_id))
         col = QVBoxLayout()
         col.setSpacing(1)
-        col.addWidget(name_line(acc.display_name, node.social.is_verified_me()))
+        col.addWidget(name_line(acc.display_name, node.social.badge()))
         col.addWidget(label(f"@{acc.username}", "muted"))
         top.addLayout(col, 1)
         card.add(top)
@@ -145,7 +153,7 @@ class HomePage(Page):
             r.addWidget(Avatar(36).set(c.name, c.avatar, node.connections.is_online(c.id), c.peer_user_id))
             col = QVBoxLayout()
             col.setSpacing(0)
-            col.addWidget(name_line(c.name, node.social.is_verified(c)))
+            col.addWidget(name_line(c.name, node.social.badge(c)))
             col.addWidget(label("Follows you" if c.follows_me else f"{c.followers_count} followers", "faint"))
             r.addLayout(col, 1)
             f = button("Follow back" if c.follows_me else "Follow", variant="link")
@@ -179,6 +187,10 @@ class HomePage(Page):
             card.add(r)
         return card
 
+    def _new_story(self) -> None:
+        from ..components.stories import new_story_dialog
+        new_story_dialog(self.win)
+
     # ------------------------------------------------------------------ refresh
     def _schedule(self, *_a) -> None:
         if not self._pending and self.isVisible():
@@ -208,6 +220,8 @@ class HomePage(Page):
             card.setMaximumWidth(FEED_W)
             self.feed.addWidget(card)
         clear_layout(self.side)
+        from ..components.stories import StoriesCard
+        self.side.addWidget(StoriesCard(self.win))
         self.side.addWidget(self._profile_card())
         self.side.addWidget(self._status_card())
         s = self._suggestions_card()
