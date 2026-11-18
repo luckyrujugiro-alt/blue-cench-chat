@@ -34,6 +34,7 @@ Source: "..\dist\BlueCenchChat\*"; DestDir: "{app}"; Flags: recursesubdirs creat
 
 [Icons]
 Name: "{group}\Blue Cench Chat"; Filename: "{app}\BlueCenchChat.exe"; AppUserModelID: "BlueCenchChat.Desktop"
+Name: "{group}\Update Blue Cench Chat"; Filename: "{app}\BlueCenchChat.exe"; Parameters: "--update"; IconFilename: "{app}\BlueCenchChat.exe"
 Name: "{group}\Uninstall Blue Cench Chat"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Blue Cench Chat"; Filename: "{app}\BlueCenchChat.exe"; Tasks: desktopicon; AppUserModelID: "BlueCenchChat.Desktop"
 
@@ -41,6 +42,8 @@ Name: "{autodesktop}\Blue Cench Chat"; Filename: "{app}\BlueCenchChat.exe"; Task
 ; Private-network firewall rule so two PCs on the same network can find each other.
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""Blue Cench Chat"" dir=in action=allow program=""{app}\BlueCenchChat.exe"" profile=private enable=yes"; Flags: runhidden; Check: IsAdminInstallMode
 Filename: "{app}\BlueCenchChat.exe"; Description: "Launch Blue Cench Chat"; Flags: nowait postinstall skipifsilent
+; After a one-click (silent) update, open the new version straight away.
+Filename: "{app}\BlueCenchChat.exe"; Flags: nowait; Check: WizardSilent
 
 [UninstallRun]
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Blue Cench Chat"""; Flags: runhidden; RunOnceId: "BlueCenchChatFirewall"

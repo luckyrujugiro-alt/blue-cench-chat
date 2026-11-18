@@ -95,3 +95,25 @@ async def test_social_and_call_ui(qapp, pair, monkeypatch):
     assert a.settings.get("theme") == "light"
     win.teardown()
     win.close()
+
+
+async def test_update_dialog_and_helicopter(qapp, pair, monkeypatch):
+    from bluecenchchat.core import updates
+    from bluecenchchat.ui.main_window import MainWindow
+    from bluecenchchat.ui.update_dialog import UpdateDialog
+
+    a, _b = pair
+    monkeypatch.setattr(updates, "latest_version", lambda timeout=6.0: "9.9.9")
+    win = MainWindow(a)
+    dlg = UpdateDialog(win, auto_check=False)
+    dlg.show()
+    dlg._check()
+    await wait_for(lambda: "9.9.9" in dlg.title.text())
+    assert not dlg.b_go.isHidden()
+    a0 = dlg.heli.angle
+    dlg.heli._step()
+    assert dlg.heli.angle != a0          # rotor is spinning
+    dlg.grab()                           # paints without errors
+    dlg.close()
+    win.teardown()
+    win.close()

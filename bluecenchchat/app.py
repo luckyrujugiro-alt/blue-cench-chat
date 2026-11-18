@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from . import config
@@ -24,6 +25,7 @@ class AppController:
     def __init__(self, app: QApplication, start_minimized: bool = False) -> None:
         self.app = app
         self.start_minimized = start_minimized
+        self.open_updater = False
         self.db = Database(config.db_path())
         self.auth = AuthService(self.db)
         self.auth.purge_guests()  # guests never survive a restart
@@ -85,6 +87,9 @@ class AppController:
         self.window = MainWindow(self.node, guest)
         self.window.sign_out_requested.connect(lambda: asyncio.ensure_future(self.sign_out()))
         self.window.quit_requested.connect(lambda: asyncio.ensure_future(self.quit()))
+        if self.open_updater and self.window is not None:
+            self.open_updater = False
+            QTimer.singleShot(400, self.window.show_update)
         if self.start_minimized and not guest:
             self.start_minimized = False
         else:

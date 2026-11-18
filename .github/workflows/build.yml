@@ -45,6 +45,12 @@ jobs:
         run: |
           choco install innosetup -y --no-progress
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:VERSION" installer\bluecenchchat.iss
+      - name: Fingerprint the installer (the in-app updater checks it)
+        shell: bash
+        run: |
+          cd dist
+          sha256sum BlueCenchChat-Setup.exe | cut -d' ' -f1 > BlueCenchChat-Setup.exe.sha256
+          cat BlueCenchChat-Setup.exe.sha256
       - name: Zip portable app
         run: Compress-Archive -Path dist\BlueCenchChat\* -DestinationPath dist\BlueCenchChat-portable.zip -Force
       - name: Upload build
@@ -53,13 +59,14 @@ jobs:
           name: BlueCenchChat-windows
           path: |
             dist/BlueCenchChat-Setup.exe
+            dist/BlueCenchChat-Setup.exe.sha256
             dist/BlueCenchChat-portable.zip
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh release create "v$VERSION" dist/BlueCenchChat-Setup.exe dist/BlueCenchChat-portable.zip \
+          gh release create "v$VERSION" dist/BlueCenchChat-Setup.exe dist/BlueCenchChat-Setup.exe.sha256 dist/BlueCenchChat-portable.zip \
             --target "$GITHUB_SHA" --latest --title "Blue Cench Chat $VERSION" \
             --notes "PC: download BlueCenchChat-Setup.exe and run it. Android: BlueCenchChat.apk (added a few minutes later). iPhone/iPad: open the address shown in the PC app under Phones & Tablets, then Share > Add to Home Screen."
 

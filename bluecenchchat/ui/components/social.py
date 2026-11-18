@@ -463,6 +463,13 @@ class ProfileDialog(QDialog):
             f.clicked.connect(lambda: win.bridge.run(node.social.follow(c.id, not c.i_follow),
                                                      lambda _r: self.build()))
             btns.addWidget(f)
+        if node.social.is_admin() and c.status != "blocked":
+            from .. import actions
+            ticked = node.social.is_verified(c)
+            tb = button("Remove blue tick" if ticked else "Give blue tick", "badge-check",
+                        "danger" if ticked else "primary")
+            tb.clicked.connect(lambda: actions.toggle_tick(win, c.id, self.build))
+            btns.addWidget(tb)
         if c.status == "accepted":
             m = button("Message", "message-square")
             m.clicked.connect(lambda: (self.accept(), win.open_chat(c.id)))

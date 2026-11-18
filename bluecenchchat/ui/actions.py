@@ -82,6 +82,23 @@ def send_paths(win, contact_id: int, paths: list[str]) -> None:
                    lambda e: win.toast(str(e), "error"))
 
 
+def toggle_tick(win, contact_id: int, after=None) -> None:
+    """Official account only: give or remove someone's blue tick in one click."""
+    node = win.node
+    c = node.repo.contact(contact_id)
+    if c is None or not node.social.is_admin():
+        return
+    if node.social.is_verified(c):
+        if not confirm(win, f"Remove {c.name}'s blue tick?", "The removal spreads to every device that meets yours.",
+                       "Remove", True):
+            return
+        win.bridge.run(node.social.revoke_tick(c.peer_user_id),
+                       lambda _r: (win.toast(f"Removed {c.name}'s blue tick"), after and after()))
+    else:
+        win.bridge.run(node.social.grant_tick(c.peer_user_id),
+                       lambda _r: (win.toast(f"{c.name} is verified", "success"), after and after()))
+
+
 def contact_menu(win, contact, parent_widget) -> QMenu:
     node, bridge = win.node, win.bridge
     m = QMenu(parent_widget)
@@ -92,6 +109,11 @@ def contact_menu(win, contact, parent_widget) -> QMenu:
         m.addAction(icons.plain("folder", 16), "Send a folder...", lambda: send_files(win, contact.id, True))
         m.addAction(icons.plain("badge-check", 16), "Verify safety number...",
                     lambda: VerifyDialog(win, node, node.repo.contact(contact.id)).exec())
+        if node.social.is_admin():
+            ticked = node.social.is_verified(contact)
+            m.addAction(icons.plain("badge-check", 16, "#0095F6"),
+                        "Remove blue tick" if ticked else "Give blue tick",
+                        lambda: toggle_tick(win, contact.id))
         fav = "Remove from favorites" if contact.favorite else "Add to favorites"
         m.addAction(icons.plain("star", 16), fav, lambda: (node.repo.set_contact(contact.id, favorite=not contact.favorite),
                                                           node.bus.emit("contacts")))

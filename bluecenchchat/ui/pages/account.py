@@ -700,8 +700,8 @@ class HelpPage(Page):
         r.addWidget(logs)
         r.addWidget(data)
         from ...core import updates
-        upd = button("Download update", "download", "primary", "Opens the latest installer on GitHub")
-        upd.clicked.connect(lambda: __import__("webbrowser").open(updates.SETUP_URL))
+        upd = button("Check for updates", "download", "primary", "Download and install the newest version (Ctrl+U)")
+        upd.clicked.connect(win.show_update)
         r.addWidget(upd)
         r.addStretch(1)
         about.add(r)

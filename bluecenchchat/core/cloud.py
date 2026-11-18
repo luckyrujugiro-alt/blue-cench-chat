@@ -360,6 +360,15 @@ class CloudService:
         self._profiles[fuid] = (time.time(), p)
         return p
 
+    def profile_verified(self, p: dict) -> bool:
+        """A published profile's blue tick, checked against the official key (can't be faked)."""
+        from . import verification as vf
+        tick = p.get("tick") or ""
+        try:
+            return bool(tick) and vf.check_tick(tick, p["uid"], b64d(p["pub"]))
+        except Exception:
+            return False
+
     def is_recent(self, p: dict) -> bool:
         return bool(p.get("on")) and time.time() * 1000 - (p.get("seen") or 0) < PROFILE_REFRESH * 2500
 
@@ -367,6 +376,10 @@ class CloudService:
         """Create / update the local contact for an online person, so chats, follows and ticks just work."""
         pub = b64d(p["pub"])
         c = self.node.repo.contact_by_peer(p["uid"])
+        if self.profile_verified(p):
+            fields_tick = {"tick_cert": p["tick"]}
+        else:
+            fields_tick = {}
         fields = {"username": p.get("username", "")[:40], "display_name": p.get("name", "")[:80],
                   "about": (p.get("about") or "")[:280],
                   "address": {"fuid": p["fuid"], "xpub": p["xpub"]}}
@@ -381,6 +394,8 @@ class CloudService:
             self.node.repo.upsert_contact(p["uid"], pub, **fields)
             if c.status in ("pending_out", "pending_in", "rejected", "removed"):
                 self.node.repo.set_contact(c.id, status="accepted")
+        if fields_tick:
+            self.node.repo.set_contact(c.id, **fields_tick)
         avatar = p.get("avatar")
         if avatar:
             try:

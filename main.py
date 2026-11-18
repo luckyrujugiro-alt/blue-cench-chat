@@ -57,6 +57,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Blue Cench Chat")
     ap.add_argument("--profile", help="development test mode: isolated data profile name")
     ap.add_argument("--minimized", action="store_true")
+    ap.add_argument("--update", action="store_true", help="open the one-click updater after sign-in")
     args, _ = ap.parse_known_args()
     if args.profile:
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", args.profile):
@@ -125,6 +126,7 @@ def main() -> int:
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
     controller = AppController(app, start_minimized=args.minimized)
+    controller.open_updater = args.update
     server.newConnection.connect(lambda: (server.nextPendingConnection(), controller.bring_to_front()))
     with loop:
         loop.call_soon(controller.start)

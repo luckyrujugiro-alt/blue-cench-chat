@@ -169,7 +169,7 @@ class EveryonePage(Page):
         top.addWidget(Avatar(48).set(person.get("name", ""), img, cloud.is_recent(person), person["uid"]))
         col = QVBoxLayout()
         col.setSpacing(1)
-        verified = bool(contact and node.social.is_verified(contact))
+        verified = bool(contact and node.social.is_verified(contact)) or cloud.profile_verified(person)
         col.addWidget(name_line(person.get("name", "") or person.get("username", ""), verified))
         col.addWidget(label(f"@{person.get('username', '')}", "muted"))
         seen = person.get("seen") or 0
@@ -212,6 +212,12 @@ class EveryonePage(Page):
         row.addWidget(f, 1)
         row.addWidget(msg, 1)
         card.add(row)
+        if node.social.is_admin() and not blocked:
+            from .. import actions
+            tb = button("Remove blue tick" if verified else "Give blue tick", "badge-check",
+                        "ghost" if verified else "primary")
+            tb.clicked.connect(lambda: self.bridge.run(ensure(), lambda cid: actions.toggle_tick(win, cid, self._fill)))
+            card.add(tb)
         return card
 
 

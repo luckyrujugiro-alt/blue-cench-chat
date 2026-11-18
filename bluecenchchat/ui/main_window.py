@@ -126,7 +126,7 @@ class MainWindow(QMainWindow):
         ("Ctrl+,", "Settings"), ("Ctrl+1 … Ctrl+9", "Jump to a sidebar item"),
         ("Ctrl+Shift+V", "Voice call the open chat"), ("Ctrl+Shift+E", "Video call the open chat (Wi-Fi/LAN)"),
         ("Ctrl+F", "Search in Messages"), ("Enter / Shift+Enter", "Send message / new line"),
-        ("Esc", "Hang up or close a dialog"), ("M / V in a call", "Mute / camera on-off"), ("F1", "Keyboard shortcuts"),
+        ("Esc", "Hang up or close a dialog"), ("Ctrl+U", "Check for updates (one click)"), ("M / V in a call", "Mute / camera on-off"), ("F1", "Keyboard shortcuts"),
     ]
 
     def _shortcuts(self) -> None:
@@ -138,6 +138,7 @@ class MainWindow(QMainWindow):
         sc("Ctrl+,", lambda: self.navigate("settings"))
         sc("Ctrl+D", self.toggle_theme)
         sc("F1", self.show_shortcuts)
+        sc("Ctrl+U", self.show_update)
         sc("Ctrl+P", self._new_post)
         sc("Ctrl+N", self._edit_note)
         sc("Ctrl+Shift+V", lambda: self._call_open_chat(False))
@@ -210,10 +211,20 @@ class MainWindow(QMainWindow):
         async def check():
             v = await asyncio.to_thread(updates.latest_version)
             if v and updates.is_newer(v):
-                self.toast(f"Blue Cench Chat {v} is available - Help & Support > Download update", "info")
-                self.node.notify("update", f"Update available: {v}", "Download it from Help & Support.",
+                self.node.notify("update", f"Update available: {v}", "One click installs it (Help & Support).",
                                  "notify_messages", ref=updates.SETUP_URL)
+                self.show_update()
         self.bridge.run(check())
+
+    def show_update(self) -> None:
+        """One-click updater (also Ctrl+U, the Start-menu "Update Blue Cench Chat" shortcut, and Help)."""
+        from .update_dialog import UpdateDialog
+
+        if getattr(self, "_update_dlg", None) is not None and self._update_dlg.isVisible():
+            self._update_dlg.raise_()
+            return
+        self._update_dlg = UpdateDialog(self)
+        self._update_dlg.show()
 
     # ------------------------------------------------------------------ calls
     def start_call(self, contact_id: int, video: bool) -> None:
