@@ -93,6 +93,21 @@ def make_app():
                 return isinstance(body, dict) and body.get("f") == uid
             if method == "DELETE" and len(parts) == 3:
                 return to == uid
+        if parts[:1] == ["official"]:
+            if method == "GET":
+                return True
+            off = get(["official"])
+            if isinstance(off, dict) and off.get("owner"):
+                if off["owner"] != uid:
+                    return False
+                if parts == ["official"]:
+                    return body.get("owner") == uid and body.get("key") == off.get("key")
+                return parts[1] in ("ticks", "rev")
+            me = get(["users", uid]) or {}
+            return (parts == ["official"] and method == "PUT" and me.get("username") == "bluecenchchat"
+                    and isinstance(body, dict) and body.get("owner") == uid)
+        if parts[:1] == ["calls"] and len(parts) >= 3:
+            return method == "GET" or parts[2] == uid
         return False
 
     @app.api_route("/db/{path:path}", methods=["GET", "PUT", "POST", "PATCH", "DELETE"])

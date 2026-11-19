@@ -285,9 +285,13 @@ function chatView() {
       h("button", { class: "icon-btn mic", id: "mic", onclick: () => toggleRecord(), "aria-label": "Record a voice message", disabled: c.status !== "accepted" }, icon("mic")),
       h("button", { class: "send", onclick: () => send(box), "aria-label": "Send" }, icon("send")))));
 }
-/* Blue Cench "signal" typing indicator: three beams pulsing out from the sender */
+/* Blue Cench typing indicator: glowing avatar ring + a bubble whose dots ride a colour wave */
 function signal(name) {
-  return h("span", { class: "signal", role: "status" }, h("i", {}), h("i", {}), h("i", {}), h("b", {}, name), " is writing");
+  const first = (name || "").trim().split(/\s+/)[0] || "";
+  return h("span", { class: "signal", role: "status" },
+    h("span", { class: "sig-av" }, (first[0] || "?").toUpperCase()),
+    h("span", { class: "sig-bubble" }, h("i", {}), h("i", {}), h("i", {})),
+    h("em", {}, first ? `${first} is typing` : "typing"));
 }
 /* ---- voice messages: record on the phone, upload 8 kHz 16-bit PCM ---- */
 const REC = { on: false };

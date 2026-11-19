@@ -67,6 +67,12 @@ class BlueCenchChatNode:
         self.messaging = MessagingService(self)
         self.transfers = TransferEngine(self)
         self.social = SocialService(self)
+        from . import verification as vf
+
+        vf.load_learned()
+        if self.repo.account().username == vf.ADMIN_USERNAME:
+            # the official account trusts its own key at once, so the ticks it gives show immediately
+            vf.trust_key(identity.public_bytes)
         self.calls = CallManager(self)
         from .cloud import CloudService
 

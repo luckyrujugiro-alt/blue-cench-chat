@@ -27,7 +27,7 @@ MIN_FOLLOWERS_FOR_REQUEST = 40
 
 
 @lru_cache(maxsize=1)
-def verifier_keys() -> frozenset[bytes]:
+def _shipped_keys() -> frozenset[bytes]:
     try:
         data = json.loads(config.resource_path("bluecenchchat", "verifiers.json").read_text(encoding="utf-8"))
         return frozenset(base64.b64decode(k) for k in data.get("keys", []) if k)
@@ -35,8 +35,53 @@ def verifier_keys() -> frozenset[bytes]:
         return frozenset()
 
 
+# Keys trusted at run time on top of the shipped ones:
+#  * the official account's own key on the official account's own PC (so its ticks show at once)
+#  * the official key learned from the online database, where only the official account can write it
+_extra: set[bytes] = set()
+
+
+def trust_key(pub: bytes) -> bool:
+    """Trust an official key learned at run time. Returns True if it is new."""
+    if not pub or len(pub) != 32 or pub in _extra or pub in _shipped_keys():
+        return False
+    _extra.add(bytes(pub))
+    return True
+
+
+def verifier_keys() -> frozenset[bytes]:
+    return _shipped_keys() | frozenset(_extra)
+
+
+def _learned_file():
+    return config.data_dir() / "official.json"
+
+
+def load_learned() -> None:
+    """Official keys learned online earlier (so ticks keep working offline afterwards)."""
+    try:
+        data = json.loads(_learned_file().read_text(encoding="utf-8"))
+        for k in data.get("keys", [])[:4]:
+            trust_key(base64.b64decode(k))
+    except (OSError, ValueError, TypeError):
+        pass
+
+
+def learn_key(pub: bytes) -> bool:
+    """Trust and remember the official key from the online database."""
+    if not trust_key(pub):
+        return False
+    try:
+        keys = sorted(base64.b64encode(k).decode() for k in _extra)
+        _learned_file().write_text(json.dumps({"keys": keys}), encoding="utf-8")
+    except OSError:
+        pass
+    return True
+
+
 def reload_keys() -> None:
-    verifier_keys.cache_clear()
+    _shipped_keys.cache_clear()
+    _extra.clear()
 
 
 def is_published_verifier(pub: bytes) -> bool:
@@ -44,8 +89,8 @@ def is_published_verifier(pub: bytes) -> bool:
 
 
 def can_verify(username: str, pub: bytes) -> bool:
-    """The official account may use the dashboard; its signatures are trusted
-    network-wide once its public key is published in verifiers.json."""
+    """The official account may use the dashboard. Its signatures are trusted everywhere
+    once its key is known: shipped in verifiers.json, or claimed online (see cloud.py)."""
     return is_published_verifier(pub) or username == ADMIN_USERNAME
 
 

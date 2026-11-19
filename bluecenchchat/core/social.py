@@ -182,6 +182,25 @@ class SocialService:
             return cert
         return ""
 
+    def accept_tick(self, cert: str, announce: bool = False) -> bool:
+        """Save a tick given to me (from the official account directly or from the online list)."""
+        acc = self.repo.account()
+        if not (vf.check_tick(cert, self.me, self.node.identity.public_bytes)
+                and vf.tick_time(cert) > self._revoked_after(self.me)):
+            return False
+        if acc.tick_cert == cert:
+            return False
+        had = self.is_verified_me()
+        with self.db.session() as s:
+            s.get(Account, acc.id).tick_cert = cert
+            s.commit()
+        self.node.update_settings(tick_request="", tick_request_sent=False)
+        if announce and not had:
+            self.node.notify("verified", "You're verified!", "Blue Cench Chat gave your account a blue tick.",
+                             "notify_security")
+        self.node.bus.emit("social")
+        return True
+
     def is_verified_me(self) -> bool:
         return bool(self.my_tick())
 
@@ -268,6 +287,7 @@ class SocialService:
             s.commit()
         self.repo.set_contact(c.id, tick_cert=cert)
         await self._deliver_grants(c.id)
+        await self.node.cloud.publish_tick(peer_uid, cert)
         self.repo.log("security", f"Blue tick given to {c.name} ({peer_uid})")
         self.node.bus.emit("social")
         self.node.bus.emit("contacts")
@@ -297,7 +317,12 @@ class SocialService:
                 await s_.session.send_json({"t": "s_tick_rev", "blob": blob})
             except Exception:
                 pass
+        await self.node.cloud.publish_tick(peer_uid, None, blob)
+        c = self.repo.contact_by_peer(peer_uid)
+        if c:
+            self.repo.set_contact(c.id, tick_cert="")
         self.node.bus.emit("social")
+        self.node.bus.emit("contacts")
         self.node.bus.emit("contacts")
 
     def _store_revocation(self, blob: str) -> bool:
@@ -848,16 +873,9 @@ class SocialService:
             self.node.bus.emit("social")
         elif t == "s_tick_grant":
             cert = msg.get("cert", "")
-            if isinstance(cert, str) and self.is_verifier_contact(contact) and \
-                    vf.check_tick(cert, self.me, self.node.identity.public_bytes):
-                with self.db.session() as s:
-                    s.get(Account, repo.account_id).tick_cert = cert
-                    s.commit()
-                self.node.update_settings(tick_request="", tick_request_sent=False)
-                self.node.notify("verified", "You're verified!", "Blue Cench Chat gave your account a blue tick.",
-                                 "notify_security")
-                await self.on_session(contact.id)
-                self.node.bus.emit("social")
+            if isinstance(cert, str) and self.accept_tick(cert, announce=True):
+                if self.node.connections.session_for_contact(contact.id):
+                    await self.on_session(contact.id)
         elif t == "s_tick_rev":
             blob = msg.get("blob", "")
             if isinstance(blob, str) and self._store_revocation(blob):

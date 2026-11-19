@@ -674,13 +674,13 @@ FAQ = [
      "message them over the internet. Messages are end-to-end encrypted: the online database only ever holds sealed "
      "envelopes, deleted as soon as they arrive. People nearby still work with no internet over Bluetooth or Wi-Fi."),
     ("How do calls work?",
-     "Open a chat and press the phone button (voice) or the camera button (video). Voice calls work over Bluetooth "
-     "and Wi-Fi. Video needs both PCs on the same Wi-Fi or LAN, because Bluetooth is too slow for video. Calls are "
-     "end-to-end encrypted like messages. Phones can't take calls yet - they ring on the PC."),
+     "Open a chat and press the phone button (voice) or the camera button (video). Voice calls work over Bluetooth, "
+     "Wi-Fi and - when you're both online - over the internet from anywhere. Video needs both PCs on the same Wi-Fi "
+     "or hotspot. Calls are end-to-end encrypted like messages. Phones can't take calls yet - they ring on the PC."),
     ("How do I get a blue tick?",
-     "Once you have 40 followers, open My Profile and press Request blue tick. The request reaches the official "
-     "@bluecenchchat account the next time your devices meet, and they approve it from their Verification page. "
-     "Ticks are cryptographically signed, so they can't be faked."),
+     "The official @bluecenchchat account can give a blue tick to anyone, and it shows straight away. You can also "
+     "ask: once you have 40 followers, open My Profile and press Request blue tick. Ticks are cryptographically "
+     "signed, so they can't be faked."),
     ("Where do posts and notes go?",
      "There is no server. Posts, notes, likes and comments travel directly between devices - your followers "
      "receive them when you're connected over Bluetooth or the same Wi-Fi."),

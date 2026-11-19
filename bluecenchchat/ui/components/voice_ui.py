@@ -307,19 +307,28 @@ class Recorder(QWidget):
 
 # --------------------------------------------------------------------------- typing signal
 class SignalIndicator(QWidget):
-    """Blue Cench's own "is writing" signal: beams pulsing out like a Bluetooth broadcast."""
+    """Blue Cench's own typing indicator.
+
+    A message bubble "being written" on the incoming side: a glowing avatar ring with the
+    person's initial, a bubble whose three dots ride a wave while a blue-to-cyan gradient
+    sweeps through them, a shimmer passing over the bubble, and "Alice is typing" beside it.
+    It fades in, and stops animating the moment the person stops typing.
+    """
 
     def __init__(self) -> None:
         super().__init__()
         self.name = ""
         self.phase = 0.0
-        self.setFixedHeight(34)
+        self.fade = 0.0
+        self.setFixedHeight(42)
         self.timer = QTimer(self)
-        self.timer.setInterval(33)
+        self.timer.setInterval(30)
         self.timer.timeout.connect(self._step)
         self.hide()
 
     def show_for(self, name: str) -> None:
+        if not self.isVisible():
+            self.fade = 0.0
         self.name = name
         self.show()
         self.timer.start()
@@ -329,71 +338,95 @@ class SignalIndicator(QWidget):
         self.hide()
 
     def _step(self) -> None:
-        self.phase = (self.phase + 0.035) % 1.0
+        self.phase = (self.phase + 0.03) % 1.0
+        self.fade = min(1.0, self.fade + 0.12)
         self.update()
 
     def paintEvent(self, _e) -> None:
-        """Neon "Typing..." badge: glowing pill, chat bubble with pulsing arcs, dancing dots."""
         import math
 
-        from PySide6.QtGui import QLinearGradient
+        from PySide6.QtGui import QLinearGradient, QRadialGradient
 
+        pal = theme.palette()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setOpacity(self.fade)
         h = self.height()
-        name = (self.name or "").split()[0][:16]
-        text = f"{name} is typing" if name else "Typing"
+        wave = self.phase * 2 * math.pi
+        blue, cyan, violet = QColor("#1D9BF0"), QColor("#22D3EE"), QColor("#8B5CF6")
+        # --- avatar ring with initial, breathing glow
+        ar = 13.0
+        ax, ay = 24.0, h / 2
+        glow = QRadialGradient(ax, ay, ar + 7)
+        g = QColor(blue)
+        g.setAlpha(int(70 + 50 * (0.5 + 0.5 * math.sin(wave))))
+        glow.setColorAt(0.6, g)
+        glow.setColorAt(1.0, QColor(29, 155, 240, 0))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(glow)
+        p.drawEllipse(QRectF(ax - ar - 7, ay - ar - 7, 2 * (ar + 7), 2 * (ar + 7)))
+        ring = QLinearGradient(ax - ar, ay - ar, ax + ar, ay + ar)
+        ring.setColorAt(0, blue)
+        ring.setColorAt(1, cyan)
+        p.setBrush(ring)
+        p.drawEllipse(QRectF(ax - ar, ay - ar, 2 * ar, 2 * ar))
+        p.setBrush(QColor(pal.surface))
+        p.drawEllipse(QRectF(ax - ar + 2, ay - ar + 2, 2 * ar - 4, 2 * ar - 4))
+        initial = (self.name or "?").strip()[:1].upper() or "?"
         f = p.font()
         f.setBold(True)
-        f.setPointSizeF(max(8.5, f.pointSizeF()))
+        f.setPointSizeF(9.5)
         p.setFont(f)
-        tw = p.fontMetrics().horizontalAdvance(text)
-        pill_w = h + 14 + tw + 46
-        x, y = 22.0, 1.0
-        pill = QRectF(x, y, pill_w, h - 2)
-        # glow
-        for i, a in ((6, 30), (4, 50), (2, 90)):
-            glow = QPen(QColor(30, 139, 255, a), i)
-            p.setPen(glow)
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRoundedRect(pill, pill.height() / 2, pill.height() / 2)
-        bg = QLinearGradient(pill.topLeft(), pill.bottomRight())
-        bg.setColorAt(0, QColor("#040A1C"))
-        bg.setColorAt(1, QColor("#0B1A3A"))
-        p.setPen(QPen(QColor("#2E9BFF"), 1.4))
-        p.setBrush(bg)
-        p.drawRoundedRect(pill, pill.height() / 2, pill.height() / 2)
-        # chat bubble with three dots + pulsing arcs
-        cx, cy, r = x + h / 2, y + (h - 2) / 2, (h - 2) / 2 - 3
-        pulse = 0.5 + 0.5 * math.sin(self.phase * 2 * math.pi)
-        arc = QPen(QColor(46, 155, 255, int(120 + 120 * pulse)), 1.6)
-        arc.setCapStyle(Qt.PenCapStyle.RoundCap)
-        p.setPen(arc)
-        rr = r + 2.5 + pulse * 1.5
-        p.drawArc(QRectF(cx - rr, cy - rr, 2 * rr, 2 * rr), 30 * 16, 120 * 16)
-        p.drawArc(QRectF(cx - rr, cy - rr, 2 * rr, 2 * rr), 210 * 16, 120 * 16)
-        bubble = QPainterPath()
-        bubble.addRoundedRect(QRectF(cx - r, cy - r * 0.8, 2 * r, r * 1.5), r * 0.7, r * 0.7)
+        p.setPen(QColor(pal.primary))
+        p.drawText(QRectF(ax - ar, ay - ar, 2 * ar, 2 * ar), Qt.AlignmentFlag.AlignCenter, initial)
+        # --- the bubble being written (incoming side, tail bottom-left)
+        bx, bw, bh = ax + ar + 9, 66.0, 30.0
+        by = (h - bh) / 2
+        rect = QRectF(bx, by, bw, bh)
+        path = QPainterPath()
+        path.addRoundedRect(rect, bh / 2, bh / 2)
         tail = QPainterPath()
-        tail.moveTo(cx - r * 0.55, cy + r * 0.55)
-        tail.lineTo(cx - r * 0.85, cy + r * 1.05)
-        tail.lineTo(cx - r * 0.1, cy + r * 0.62)
+        tail.moveTo(bx + 4, by + bh - 9)
+        tail.lineTo(bx - 4, by + bh + 1)
+        tail.lineTo(bx + 14, by + bh - 2)
+        path = path.united(tail)
+        p.setPen(QPen(QColor(29, 155, 240, 110), 1.2))
+        p.setBrush(QColor(pal.surface2))
+        p.drawPath(path)
+        # shimmer sweeping across the bubble
+        sx = bx - 30 + (bw + 60) * self.phase
+        sh = QLinearGradient(sx - 22, 0, sx + 22, 0)
+        sh.setColorAt(0, QColor(255, 255, 255, 0))
+        sh.setColorAt(0.5, QColor(255, 255, 255, 34))
+        sh.setColorAt(1, QColor(255, 255, 255, 0))
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor("#E8EEFF"))
-        p.drawPath(bubble.united(tail))
-        p.setBrush(QColor("#1E6BFF"))
+        p.setBrush(sh)
+        p.save()
+        p.setClipPath(path)
+        p.drawRect(rect)
+        p.restore()
+        # three dots riding a wave, colour sweeping blue -> cyan -> violet
         for i in range(3):
-            d = r * 0.22
-            p.drawEllipse(QRectF(cx - r * 0.55 + i * r * 0.55 - d / 2 + d * 0.1, cy - r * 0.05 - d / 2, d, d))
-        # label
-        p.setPen(QColor("#FFFFFF"))
-        p.drawText(QRectF(x + h + 4, y, tw + 4, h - 2), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                   text)
-        # dancing dots (bounce one after another, blue -> cyan)
-        dx = x + h + 10 + tw
-        for i, col in enumerate(("#1E8BFF", "#38BDF8", "#67E8F9")):
-            t = (self.phase * 2 - i * 0.18) % 1.0
-            jump = max(0.0, math.sin(t * math.pi * 2)) * 4.0
-            dr = 3.4
-            p.setBrush(QColor(col))
-            p.drawEllipse(QRectF(dx + i * 10, cy - dr - jump + 1, dr * 2, dr * 2))
+            t = wave - i * 0.9
+            lift = max(0.0, math.sin(t)) * 5.0
+            size = 3.6 + max(0.0, math.sin(t)) * 1.2
+            mix = 0.5 + 0.5 * math.sin(t + 1.2)
+            c1, c2 = (blue, cyan) if i < 2 else (cyan, violet)
+            col = QColor(int(c1.red() + (c2.red() - c1.red()) * mix), int(c1.green() + (c2.green() - c1.green()) * mix),
+                         int(c1.blue() + (c2.blue() - c1.blue()) * mix))
+            cx = bx + 17 + i * 16
+            cy = by + bh / 2 - lift + 1.5
+            p.setBrush(col)
+            p.drawEllipse(QRectF(cx - size, cy - size, size * 2, size * 2))
+        # --- label
+        name = (self.name or "").split()[0][:18] if self.name else ""
+        f.setBold(False)
+        f.setItalic(True)
+        f.setPointSizeF(9)
+        p.setFont(f)
+        p.setPen(QColor(pal.muted))
+        p.drawText(QRectF(bx + bw + 12, 0, 260, h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                   f"{name} is typing" if name else "typing")
+        p.end()
+
+

@@ -1,12 +1,10 @@
 """Verification dashboard - only for the official @bluecenchchat account."""
 from __future__ import annotations
 
-import base64
 import time
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QHBoxLayout, QPlainTextEdit, QTabBar, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QTabBar, QVBoxLayout, QWidget
 
 from ...core import verification as vf
 from .. import theme
@@ -34,7 +32,7 @@ class VerifyPage(Page):
                          "sees this page.")
         self.win, self.node, self.bridge = win, win.node, win.bridge
         p = theme.palette()
-        self.publish = Card("Publish your verifier key", "key-round")
+        self.publish = Card("Blue ticks", "badge-check")
         self.publish_body = QVBoxLayout()
         self.publish.add(self.publish_body)
         self.content.addWidget(self.publish)
@@ -62,9 +60,8 @@ class VerifyPage(Page):
         self.list.setSpacing(8)
         self.content.addLayout(self.list)
         self.content.addWidget(label(
-            f"Rule: people can request a blue tick once they have {vf.MIN_FOLLOWERS_FOR_REQUEST} followers. "
-            "Follower numbers are reported by their app; check the person before verifying. Ticks are signed with "
-            "your key, so nobody can fake one, and removals spread to every device that meets yours.", "faint",
+            f"People can ask for a blue tick once they have {vf.MIN_FOLLOWERS_FOR_REQUEST} followers, but you can give "
+            "one to anyone at any time. Ticks are signed with your key, so nobody can fake one.", "faint",
             wrap=True))
         self.content.addStretch(1)
         self._pending = False
@@ -82,30 +79,23 @@ class VerifyPage(Page):
 
     def _publish_card(self) -> None:
         clear_layout(self.publish_body)
-        social = self.node.social
-        if social.admin_published():
-            self.publish.title_label.setText("Your verifier key is published")
-            r = QHBoxLayout()
-            r.addWidget(tick_icon(18))
-            r.addWidget(label("Every copy of Blue Cench Chat trusts the blue ticks you give. Your own account shows "
-                              "the official tick.", "muted", wrap=True), 1)
-            self.publish_body.addLayout(r)
-            return
-        self.publish.title_label.setText("Step 1 - publish your verifier key")
-        key = base64.b64encode(self.node.identity.public_bytes).decode()
-        self.publish_body.addWidget(label(
-            "Blue ticks you give are only trusted by other phones and PCs once this PUBLIC key is built into the app. "
-            "It is safe to share - it can't be used to log in or to make ticks. Copy it and add it to "
-            "bluecenchchat/verifiers.json in your project (or send it to Claude), then push to GitHub. The next "
-            "build of Blue Cench Chat will trust your ticks, and your account will get its blue tick.",
-            "muted", wrap=True))
-        box = QPlainTextEdit(key)
-        box.setReadOnly(True)
-        box.setMaximumHeight(46)
-        self.publish_body.addWidget(box)
-        cp = button("Copy verifier key", "copy", "primary")
-        cp.clicked.connect(lambda: (QGuiApplication.clipboard().setText(key), self.win.toast("Verifier key copied")))
-        self.publish_body.addWidget(cp, 0, Qt.AlignmentFlag.AlignLeft)
+        cloud = self.node.cloud
+        r = QHBoxLayout()
+        r.addWidget(tick_icon(18))
+        if cloud.is_official_owner():
+            self.publish.title_label.setText("Your ticks reach everyone")
+            text = ("You're online as the official account. A tick you give shows at once for that person and for "
+                    "everyone online - no request or follower count needed. Give one from here, from Everyone, or "
+                    "from anyone's profile.")
+        elif cloud.official_note:
+            self.publish.title_label.setText("Official key is held by another device")
+            text = cloud.official_note
+        else:
+            self.publish.title_label.setText("Ticks work on this PC right now")
+            text = ("Ticks you give show at once on this PC and on devices you meet. Turn on online mode "
+                    "(Settings) once and they reach every Blue Cench Chat user everywhere, automatically.")
+        r.addWidget(label(text, "muted", wrap=True), 1)
+        self.publish_body.addLayout(r)
 
     def refresh(self) -> None:
         self._pending = False

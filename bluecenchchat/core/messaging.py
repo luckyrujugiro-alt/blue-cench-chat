@@ -147,6 +147,14 @@ class MessagingService:
                 await s.session.send_json({"t": "typing", "on": bool(on)})
             except Exception:
                 pass
+            return
+        cloud = getattr(self.node, "cloud", None)
+        c = self.node.repo.contact(contact_id)
+        if cloud is not None and cloud.can_reach(c):
+            try:
+                await cloud.send(c, {"t": "typing", "on": bool(on)})
+            except Exception:
+                pass
 
     async def delete(self, msg_id: str, for_everyone: bool) -> None:
         m = self.node.repo.message(msg_id)

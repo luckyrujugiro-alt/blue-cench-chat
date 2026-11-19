@@ -6,6 +6,9 @@
 * Video needs the local network (Wi-Fi / Ethernet / Mobile Hotspot): frames
   are JPEG at ~12 fps, far more than Bluetooth can carry.  Asking for video on
   a Bluetooth link is refused with a clear message.
+* Voice also works over the INTERNET (online mode) when the two people aren't nearby:
+  signalling goes through the sealed online mailbox, audio through cloud.OnlineCallLink
+  (8 kHz mu-law, end-to-end encrypted with a per-call key sent inside the sealed invite).
 * Signalling: call_invite -> call_accept | call_decline | call_busy, call_end.
 * Media frames are only accepted from the peer of the active call.
 
@@ -15,7 +18,9 @@ feeds bytes in/out, so calls are testable without microphones.
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -42,6 +47,11 @@ class Call:
     seq: int = 0
     rx_bytes: int = 0
     camera_off: bool = False
+    key: bytes = b""          # online calls: per-call encryption key
+
+    @property
+    def online(self) -> bool:
+        return self.transport == "online"
 
     @property
     def duration(self) -> float:
@@ -60,6 +70,8 @@ class CallManager:
         self._timer: asyncio.Task | None = None
         self.on_audio = None   # callback(bytes) set by the UI
         self.on_video = None   # callback(bytes) set by the UI
+        self._link = None      # OnlineCallLink for internet calls
+        self._ulaw_buf = bytearray()
 
     def _session(self, contact_id: int):
         s = self.node.connections.session_for_contact(contact_id)
@@ -76,8 +88,24 @@ class CallManager:
         if self.current and self.current.state != "ended":
             raise ValueError("You are already in a call")
         s = self._session(contact_id)
+        cloud = getattr(self.node, "cloud", None)
         if s is None:
-            raise ValueError(f"{c.name} is offline. Calls need them to be connected nearby.")
+            if cloud is None or not cloud.can_reach(c):
+                raise ValueError(f"{c.name} isn't nearby and isn't reachable online. Connect over Bluetooth or "
+                                 "Wi-Fi, or make sure you're both online.")
+            if video:
+                raise ValueError("Video calls need you both on the same Wi-Fi or hotspot. Over the internet "
+                                 "you can make a voice call.")
+            call = Call(str(uuid.uuid4()), contact_id, False, True, "ringing", "online", 8000, key=os.urandom(32))
+            self.current = call
+            ok = await cloud.send(c, {"t": "call_invite", "id": call.id, "video": False, "rate": 8000,
+                                      "key": base64.b64encode(call.key).decode()})
+            if not ok:
+                self.current = None
+                raise ValueError("Couldn't reach them online - check your internet and try again.")
+            self._arm_timeout(call)
+            self._emit()
+            return call
         if video and s.transport != "lan":
             raise ValueError("Video calls need Wi-Fi or a hotspot (local network). This connection is Bluetooth, "
                              "so start a voice call instead.")
@@ -109,6 +137,7 @@ class CallManager:
             return
         call.state, call.started = "active", time.time()
         await self._send(call, {"t": "call_accept", "id": call.id})
+        self._open_link(call)
         self._emit()
 
     async def decline(self) -> None:
@@ -126,6 +155,14 @@ class CallManager:
         self._finish(call, "Ended")
 
     async def _send(self, call: Call, obj: dict) -> None:
+        if call.online:
+            c = self.node.repo.contact(call.contact_id)
+            if c is not None:
+                try:
+                    await self.node.cloud.send(c, obj)
+                except Exception:
+                    pass
+            return
         s = self._session(call.contact_id)
         if s:
             try:
@@ -140,6 +177,9 @@ class CallManager:
         call.state, call.ended_reason = "ended", reason
         if self._timer:
             self._timer.cancel()
+        if self._link is not None:
+            asyncio.ensure_future(self._link.close())
+            self._link = None
         kind = "Video call" if call.video else "Voice call"
         if was_active:
             text = f"{kind} · {fmt_duration(call.duration)}"
@@ -168,6 +208,15 @@ class CallManager:
         call = self.current
         if not call or call.state != "active" or len(data) > 900_000:
             return
+        if call.online:
+            if kind == AUDIO and self._link is not None:
+                from . import voice
+                self._ulaw_buf += voice.encode(data)
+                frame = 8 * self._link.FRAME_MS
+                while len(self._ulaw_buf) >= frame:
+                    self._link.send(AUDIO, bytes(self._ulaw_buf[:frame]))
+                    del self._ulaw_buf[:frame]
+            return
         s = self._session(call.contact_id)
         if not s:
             return
@@ -187,10 +236,46 @@ class CallManager:
         elif kind == VIDEO and call.video and self.on_video:
             self.on_video(data)
 
+    def _open_link(self, call: Call) -> None:
+        if not call.online or self._link is not None:
+            return
+        from .cloud import OnlineCallLink
+        from . import voice
+
+        c = self.node.repo.contact(call.contact_id)
+        fuid = (c.address or {}).get("fuid") if c else None
+        if not fuid:
+            return
+        self._ulaw_buf.clear()
+
+        def on_frame(kind: int, seq: int, data: bytes) -> None:
+            if kind == AUDIO and c is not None:
+                self.on_media(c, AUDIO, seq, voice.decode(data))
+
+        self._link = OnlineCallLink(self.node.cloud, call.id, fuid, call.key, on_frame)
+        self._link.start()
+
     # ------------------------------------------------------------------ signalling
-    async def on_message(self, contact, msg: dict) -> None:
+    async def on_message(self, contact, msg: dict, via: str = "session") -> None:
         t, cid = msg["t"], str(msg.get("id", ""))[:36]
         call = self.current
+        if t == "call_invite" and via == "online":
+            busy = call is not None and call.state != "ended"
+            try:
+                key = base64.b64decode(str(msg.get("key", "")))
+            except ValueError:
+                key = b""
+            if len(key) != 32 or not cid:
+                return
+            if busy:
+                await self.node.cloud.send(contact, {"t": "call_busy", "id": cid})
+                return
+            self.current = Call(cid, contact.id, False, False, "ringing", "online", 8000, key=key)
+            self._arm_timeout(self.current)
+            self.node.notify("call", "Incoming voice call", contact.name, "notify_messages",
+                             ref=str(contact.id), store=False)
+            self._emit()
+            return
         if t == "call_invite":
             s = self._session(contact.id)
             busy = call is not None and call.state != "ended"
@@ -212,6 +297,7 @@ class CallManager:
             call.state, call.started = "active", time.time()
             if self._timer:
                 self._timer.cancel()
+            self._open_link(call)
             self._emit()
         elif t == "call_decline":
             self._finish(call, "Declined")
@@ -232,6 +318,6 @@ class CallManager:
 
     def on_session_lost(self, contact_id: int) -> None:
         call = self.current
-        if call and call.contact_id == contact_id and call.state != "ended":
+        if call and call.contact_id == contact_id and call.state != "ended" and not call.online:
             self._finish(call, "Connection lost" if call.state == "active" else
                          ("Missed" if not call.outgoing else "Connection lost"))

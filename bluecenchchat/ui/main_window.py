@@ -259,10 +259,16 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ calls
     def start_call(self, contact_id: int, video: bool) -> None:
-        if not self.node.connections.session_for_contact(contact_id):
-            self.toast("Calls work when you're nearby: connect over Bluetooth or the same Wi-Fi first. "
-                       "Texting works from anywhere.", "warning")
-            return
+        nearby = self.node.connections.session_for_contact(contact_id)
+        if not nearby:
+            c = self.node.repo.contact(contact_id)
+            if not self.node.cloud.can_reach(c):
+                self.toast("They aren't nearby or online. Connect over Bluetooth / Wi-Fi, or turn on online "
+                           "mode (both of you) to call over the internet.", "warning")
+                return
+            if video:
+                self.toast("Over the internet you can make a voice call. Video needs the same Wi-Fi.", "warning")
+                return
         cur = self.node.calls.current
         if cur and cur.state != "ended":
             self.toast("You're already in a call", "warning")

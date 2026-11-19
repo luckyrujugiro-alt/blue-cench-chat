@@ -5,11 +5,21 @@
       "$uid": {
         ".write": "auth != null && auth.uid === $uid",
         ".validate": "!newData.exists() || newData.hasChildren(['name', 'uid', 'pub', 'xpub'])",
-        "name": { ".validate": "newData.isString() && newData.val().length <= 80" },
-        "username": { ".validate": "newData.isString() && newData.val().length <= 40" },
-        "about": { ".validate": "newData.isString() && newData.val().length <= 280" },
-        "avatar": { ".validate": "newData.isString() && newData.val().length <= 40000" },
-        "tick": { ".validate": "newData.isString() && newData.val().length <= 4000" }
+        "name": {
+          ".validate": "newData.isString() && newData.val().length <= 80"
+        },
+        "username": {
+          ".validate": "newData.isString() && newData.val().length <= 40"
+        },
+        "about": {
+          ".validate": "newData.isString() && newData.val().length <= 280"
+        },
+        "avatar": {
+          ".validate": "newData.isString() && newData.val().length <= 40000"
+        },
+        "tick": {
+          ".validate": "newData.isString() && newData.val().length <= 4000"
+        }
       }
     },
     "mailbox": {
@@ -21,6 +31,44 @@
         }
       }
     },
-    "$other": { ".read": false, ".write": false }
+    "official": {
+      ".read": "auth != null",
+      ".write": "auth != null && (data.exists() ? data.child('owner').val() === auth.uid : root.child('users').child(auth.uid).child('username').val() === 'bluecenchchat')",
+      ".validate": "newData.hasChildren(['owner','key'])",
+      "owner": {
+        ".validate": "data.exists() ? newData.val() === data.val() : newData.val() === auth.uid"
+      },
+      "key": {
+        ".validate": "newData.isString() && newData.val().length === 44 && (!data.exists() || data.val() === newData.val())"
+      },
+      "ticks": {
+        "$uid": {
+          ".validate": "newData.isString() && newData.val().length <= 4000"
+        }
+      },
+      "rev": {
+        "$uid": {
+          ".validate": "newData.isString() && newData.val().length <= 4000"
+        }
+      },
+      "$x": {
+        ".validate": false
+      }
+    },
+    "calls": {
+      "$cid": {
+        ".read": "auth != null",
+        "$from": {
+          ".write": "auth != null && auth.uid === $from",
+          "$frame": {
+            ".validate": "newData.isString() && newData.val().length <= 12000"
+          }
+        }
+      }
+    },
+    "$other": {
+      ".read": false,
+      ".write": false
+    }
   }
 }

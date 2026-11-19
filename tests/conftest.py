@@ -66,3 +66,13 @@ async def connect_and_accept(a, b):
     await b.connections.accept(cid_a_on_b)
     await wait_for(lambda: a.repo.contact(cid_b_on_a).status == "accepted")
     return cid_b_on_a, cid_a_on_b
+
+
+@pytest.fixture(autouse=True)
+def _isolated_official_keys(tmp_path, monkeypatch):
+    """Each test starts with no learned official key and its own data folder."""
+    from bluecenchchat.core import verification as vf
+    monkeypatch.setenv("BLUECENCHCHAT_HOME", str(tmp_path / "home"))
+    vf.reload_keys()
+    yield
+    vf.reload_keys()

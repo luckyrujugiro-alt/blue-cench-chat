@@ -98,6 +98,8 @@ class CloudService:
         self._seen_keys: set[str] = set()
         self._lock = asyncio.Lock()
         self._pub_pending = False
+        self.official: dict = {}          # /official: owner, key, ticks {uid: cert}, rev {uid: blob}
+        self.official_note = ""            # shown to the official account if its name is taken online
         node.bus.on("social", self._schedule_publish)
 
     def _schedule_publish(self, *_a) -> None:
@@ -201,6 +203,12 @@ class CloudService:
         except Exception as exc:  # noqa: BLE001
             self._set("error", f"Could not publish your profile: {exc}")
             return
+        try:
+            await self.sync_official()
+            if self.node.social.my_tick():
+                await self.publish_profile()
+        except Exception as exc:  # noqa: BLE001
+            log.info("official sync failed: %s", exc)
         self._set("online")
         self._tasks.append(asyncio.create_task(self._listen_loop()))
         self._tasks.append(asyncio.create_task(self._heartbeat_loop()))
@@ -340,6 +348,10 @@ class CloudService:
         if not force and time.time() - ts < DIRECTORY_TTL:
             return cached
         data = await self._req("GET", "users") or {}
+        try:
+            await self.sync_official()
+        except Exception as exc:  # noqa: BLE001
+            log.info("official sync failed: %s", exc)
         people = []
         for fuid, p in data.items():
             if not isinstance(p, dict) or fuid == self.fuid or not _valid_profile(p):
@@ -368,11 +380,19 @@ class CloudService:
     def profile_verified(self, p: dict) -> bool:
         """A published profile's blue tick, checked against the official key (can't be faked)."""
         from . import verification as vf
-        tick = p.get("tick") or ""
         try:
-            return bool(tick) and vf.check_tick(tick, p["uid"], b64d(p["pub"]))
+            pub = b64d(p["pub"])
+            return any(t and vf.check_tick(t, p["uid"], pub) for t in (p.get("tick") or "", self.official_tick(p["uid"])))
         except Exception:
             return False
+
+    def tick_for(self, p: dict) -> str:
+        from . import verification as vf
+        pub = b64d(p["pub"])
+        for t in (self.official_tick(p["uid"]), p.get("tick") or ""):
+            if t and vf.check_tick(t, p["uid"], pub):
+                return t
+        return ""
 
     def is_recent(self, p: dict) -> bool:
         return bool(p.get("on")) and time.time() * 1000 - (p.get("seen") or 0) < PROFILE_REFRESH * 2500
@@ -381,10 +401,8 @@ class CloudService:
         """Create / update the local contact for an online person, so chats, follows and ticks just work."""
         pub = b64d(p["pub"])
         c = self.node.repo.contact_by_peer(p["uid"])
-        if self.profile_verified(p):
-            fields_tick = {"tick_cert": p["tick"]}
-        else:
-            fields_tick = {}
+        tick = self.tick_for(p)
+        fields_tick = {"tick_cert": tick} if tick else {}
         fields = {"username": p.get("username", "")[:40], "display_name": p.get("name", "")[:80],
                   "about": (p.get("about") or "")[:280],
                   "address": {"fuid": p["fuid"], "xpub": p["xpub"]}}
@@ -415,6 +433,79 @@ class CloudService:
         if not p:
             raise CloudError("That person couldn't be found online")
         return self.contact_for(p).id
+
+    # ------------------------------------------------------------------ official account (blue ticks)
+    async def sync_official(self) -> None:
+        """The official account's key, ticks and removals live at /official.
+
+        The database rules let only the first account named "bluecenchchat" create /official,
+        and only that account can change it afterwards - so a key found there is the real one.
+        The official account claims it automatically the first time it goes online.
+        """
+        from . import verification as vf
+
+        off = await self._req("GET", "official")
+        acc = self.node.repo.account()
+        mine = self.node.identity.public_bytes
+        if not isinstance(off, dict) or not off.get("key"):
+            if acc.username == vf.ADMIN_USERNAME:
+                off = {"owner": self.fuid, "key": b64e(mine)}
+                await self._req("PUT", "official", off)
+                self.node.repo.log("security", "Claimed the official Blue Cench Chat account online")
+            else:
+                self.official = {}
+                return
+        try:
+            key = b64d(off["key"])
+        except Exception:
+            return
+        if acc.username == vf.ADMIN_USERNAME and key != mine:
+            self.official_note = ("Another device already holds the official Blue Cench Chat key online. "
+                                  "Sign in as bluecenchchat on the PC that first went online.")
+        if vf.learn_key(key):
+            self.node.bus.emit("contacts")
+        self.official = off
+        social = self.node.social
+        me = acc.user_id
+        for blob in (off.get("rev") or {}).values() if isinstance(off.get("rev"), dict) else []:
+            if isinstance(blob, str):
+                social._store_revocation(blob)
+        cert = (off.get("ticks") or {}).get(me) if isinstance(off.get("ticks"), dict) else None
+        if isinstance(cert, str):
+            social.accept_tick(cert, announce=True)
+        self.node.bus.emit("social")
+
+    def official_tick(self, uid: str) -> str:
+        ticks = self.official.get("ticks") if isinstance(self.official, dict) else None
+        cert = ticks.get(uid) if isinstance(ticks, dict) else None
+        return cert if isinstance(cert, str) else ""
+
+    def is_official_owner(self) -> bool:
+        return self.online and isinstance(self.official, dict) and self.official.get("owner") == self.fuid
+
+    async def publish_tick(self, uid: str, cert: str | None, revocation: str | None = None) -> bool:
+        """Official account only: give (cert) or remove (revocation) a tick for everyone online."""
+        if not self.online:
+            return False
+        try:
+            if not self.official:
+                await self.sync_official()
+            if not self.is_official_owner():
+                return False
+            if cert:
+                await self._req("PUT", f"official/ticks/{uid}", cert)
+                await self._req("DELETE", f"official/rev/{uid}")
+                self.official.setdefault("ticks", {})[uid] = cert
+            else:
+                await self._req("DELETE", f"official/ticks/{uid}")
+                if revocation:
+                    await self._req("PUT", f"official/rev/{uid}", revocation)
+                (self.official.get("ticks") or {}).pop(uid, None)
+            self._directory = (0.0, self._directory[1])
+            return True
+        except (CloudError, httpx.HTTPError) as exc:
+            log.info("publishing tick failed: %s", exc)
+            return False
 
     # ------------------------------------------------------------------ sending
     def can_reach(self, contact) -> bool:
@@ -567,6 +658,8 @@ class CloudService:
         self.node.repo.set_contact(contact.id, last_seen=time.time())
         if t in PASS_THROUGH:
             await self.node.messaging.on_message(contact, msg)
+        elif t.startswith("call_"):
+            await self.node.calls.on_message(contact, msg, via="online")
         elif t.startswith("s_"):
             await self.node.social.on_message(contact, msg)
 
@@ -601,3 +694,105 @@ def _thumb(img: bytes) -> bytes:
     out = io.BytesIO()
     im.save(out, "JPEG", quality=80)
     return out.getvalue()
+
+
+class OnlineCallLink:
+    """Live voice over the internet, through the online database.
+
+    The call key travels inside the sealed (end-to-end encrypted) call invite, so the database
+    only ever holds ChaCha20-Poly1305 ciphertext. Audio is 8 kHz mu-law in ~200 ms frames
+    (8 KB/s each way). Each side writes /calls/{call}/{its id}/{seq} and streams the other side.
+    """
+
+    FRAME_MS = 200
+    MAX_IN_FLIGHT = 6
+
+    def __init__(self, cloud: CloudService, call_id: str, peer_fuid: str, key: bytes, on_frame) -> None:
+        self.cloud, self.cid, self.peer, self.key = cloud, call_id, peer_fuid, key
+        self.on_frame = on_frame          # callback(kind, seq, bytes)
+        self.seq = 0
+        self._pending: set[asyncio.Task] = set()
+        self._rx: asyncio.Task | None = None
+        self._seen: set[str] = set()
+        self.closed = False
+
+    def _nonce(self, sender: str, seq: int) -> bytes:
+        tag = hashes.Hash(hashes.SHA256())
+        tag.update(sender.encode())
+        return tag.finalize()[:4] + seq.to_bytes(8, "big")
+
+    def start(self) -> None:
+        if self._rx is None:
+            self._rx = asyncio.ensure_future(self._receive_loop())
+
+    def send(self, kind: int, data: bytes) -> None:
+        if self.closed or len(self._pending) >= self.MAX_IN_FLIGHT:
+            return  # the internet is behind: drop this frame rather than add delay
+        self.seq += 1
+        seq = self.seq
+        me = self.cloud.fuid
+        ct = ChaCha20Poly1305(self.key).encrypt(self._nonce(me, seq), bytes([kind]) + data,
+                                                 f"{self.cid}>{me}".encode())
+        t = asyncio.ensure_future(self._put(seq, b64e(ct)))
+        self._pending.add(t)
+        t.add_done_callback(self._pending.discard)
+
+    async def _put(self, seq: int, blob: str) -> None:
+        try:
+            await self.cloud._req("PUT", f"calls/{self.cid}/{self.cloud.fuid}/{seq:09d}", blob)
+        except Exception as exc:  # noqa: BLE001
+            log.info("call frame not sent: %s", exc)
+
+    def _open(self, key: str, blob) -> None:
+        if key in self._seen or not isinstance(blob, str):
+            return
+        self._seen.add(key)
+        try:
+            seq = int(key)
+            pt = ChaCha20Poly1305(self.key).decrypt(self._nonce(self.peer, seq), b64d(blob),
+                                                    f"{self.cid}>{self.peer}".encode())
+        except Exception:
+            return
+        if pt:
+            self.on_frame(pt[0], seq, pt[1:])
+
+    async def _receive_loop(self) -> None:
+        while not self.closed:
+            try:
+                token = await self.cloud._token()
+                url = f"{self.cloud._db}/calls/{self.cid}/{self.peer}.json"
+                async with self.cloud._http().stream("GET", url, params={"auth": token},
+                                                     headers={"Accept": "text/event-stream"},
+                                                     timeout=httpx.Timeout(20, read=60)) as r:
+                    if r.status_code != 200:
+                        raise CloudError(f"call stream {r.status_code}")
+                    event = ""
+                    async for line in r.aiter_lines():
+                        if self.closed:
+                            return
+                        if line.startswith("event:"):
+                            event = line[6:].strip()
+                        elif line.startswith("data:") and event in ("put", "patch"):
+                            ev = json.loads(line[5:].strip() or "null") or {}
+                            path, data = ev.get("path", "/"), ev.get("data")
+                            if data is None:
+                                continue
+                            if path == "/" and isinstance(data, dict):
+                                for k in sorted(data):
+                                    self._open(k, data[k])
+                            else:
+                                self._open(path.strip("/").split("/")[0], data)
+            except asyncio.CancelledError:
+                return
+            except Exception as exc:  # noqa: BLE001
+                log.info("call stream dropped: %s", exc)
+                await asyncio.sleep(0.5)
+
+    async def close(self) -> None:
+        self.closed = True
+        if self._rx:
+            self._rx.cancel()
+        try:
+            await self.cloud._req("DELETE", f"calls/{self.cid}/{self.cloud.fuid}")
+        except Exception:
+            pass

@@ -161,7 +161,7 @@ class CallWindow(QDialog):
     def update_state(self, call) -> None:
         self.call = call
         self._ring(call.state == "ringing")
-        transport = "Wi-Fi / LAN" if call.transport == "lan" else "Bluetooth"
+        transport = {"lan": "Wi-Fi / LAN", "online": "Internet"}.get(call.transport, "Bluetooth")
         self.info.setText(f"{'Video' if call.video else 'Voice'} · {transport} · end-to-end encrypted")
         ringing_in = call.state == "ringing" and not call.outgoing
         self.b_accept.setVisible(ringing_in)
@@ -202,7 +202,9 @@ class CallWindow(QDialog):
                 bpms = ofmt.sampleRate() * ofmt.channelCount() * ofmt.bytesPerSample() / 1000
                 self.sink.setBufferSize(int(bpms * 200))
                 self.sink_io = self.sink.start()
-                self.jitter = dsp.JitterBuffer(self.call.rate * 2 / 1000)
+                online = self.call.transport == "online"
+                self.jitter = dsp.JitterBuffer(self.call.rate * 2 / 1000, target_ms=420 if online else 120,
+                                               max_ms=1600 if online else 600)
                 self.play_timer = QTimer(self)
                 self.play_timer.setInterval(20)
                 self.play_timer.timeout.connect(self._feed_speaker)

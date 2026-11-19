@@ -160,3 +160,82 @@ async def test_voice_message_over_internet(far_apart, firebase, tmp_path, monkey
     await wait_for(lambda: b.repo.message(mid) is not None)
     assert b.repo.message(mid).kind == "voice"
     assert "audio" not in json.dumps(firebase["db"])
+
+
+@pytest.fixture
+async def official_and_two(tmp_path, firebase):
+    """The official bluecenchchat account plus two people, nobody nearby."""
+    nodes = []
+    for name in ("bluecenchchat", "alice", "bob"):
+        db = Database(tmp_path / f"{name}.db")
+        acc, _, ident = make_account(db, name)
+        node = BlueCenchChatNode(db, acc.id, ident, beacon_port=random.randint(48000, 60000))
+        node.update_settings(lan_enabled=False, rfcomm_enabled=False, download_dir=str(tmp_path))
+        await node.start()
+        nodes.append(node)
+    yield nodes
+    for n in nodes:
+        await n.stop()
+
+
+async def test_blue_tick_works_instantly_for_everyone(official_and_two, firebase):
+    from bluecenchchat.core import verification as vf
+    admin, a, b = official_and_two
+    # the official account is the founder on its own PC straight away - no key to publish
+    assert admin.social.badge() == "founder"
+    await admin.cloud.start("Passw0rd!x")
+    assert firebase["db"]["official"]["owner"] == admin.cloud.fuid      # claimed automatically
+    await a.cloud.start("Passw0rd!x")
+    await b.cloud.start("Passw0rd!x")
+    assert admin.identity.public_bytes in vf.verifier_keys()
+    # admin gives Alice a tick: no request, no 40 followers, and Alice is offline-to-admin (online only)
+    people = await admin.cloud.directory(force=True)
+    alice = next(p for p in people if p["username"] == "alice")
+    cid = admin.cloud.contact_for(alice).id
+    await admin.social.grant_tick(a.identity.user_id)
+    assert admin.social.is_verified(admin.repo.contact(cid))
+    # Alice receives it, and Bob sees it in the directory
+    await wait_for(lambda: a.social.is_verified_me())
+    bob_view = next(p for p in await b.cloud.directory(force=True) if p["username"] == "alice")
+    assert b.cloud.profile_verified(bob_view)
+    assert b.social.is_verified(b.cloud.contact_for(bob_view))
+    # someone else naming themselves bluecenchchat later can't take over the official key
+    with pytest.raises(cloud_mod.CloudError):
+        await b.cloud._req("PUT", "official", {"owner": b.cloud.fuid, "key": firebase["db"]["official"]["key"]})
+    # removing the tick works for everyone too
+    await admin.social.revoke_tick(a.identity.user_id)
+    assert "alice" not in json.dumps(firebase["db"]["official"].get("ticks", {}))
+    bob_view = next(p for p in await b.cloud.directory(force=True) if p["username"] == "alice")
+    c = b.cloud.contact_for(bob_view)
+    assert not b.social.is_verified(c) or not b.cloud.official_tick(a.identity.user_id)
+
+
+async def test_voice_call_over_internet(far_apart, firebase):
+    import math
+    import struct
+
+    a, b = far_apart
+    await a.cloud.start("Passw0rd!x")
+    await b.cloud.start("Passw0rd!x")
+    cid = await a.cloud.open_person((await a.cloud.directory(force=True))[0]["fuid"])
+    heard_a, heard_b = [], []
+    a.calls.on_audio = heard_a.append
+    b.calls.on_audio = heard_b.append
+    with pytest.raises(ValueError):
+        await a.calls.start(cid, video=True)          # video needs the same Wi-Fi
+    call = await a.calls.start(cid, video=False)
+    assert call.transport == "online"
+    await wait_for(lambda: b.calls.current is not None and b.calls.current.state == "ringing")
+    await b.calls.accept()
+    await wait_for(lambda: a.calls.current.state == "active")
+    tone = b"".join(struct.pack("<h", int(8000 * math.sin(i / 4))) for i in range(320))  # 40 ms at 8 kHz
+    for _ in range(15):
+        await a.calls.send_audio(tone)
+        await b.calls.send_audio(tone)
+    await wait_for(lambda: sum(map(len, heard_b)) >= 3200 and sum(map(len, heard_a)) >= 3200)
+    raw = json.dumps(firebase["db"])
+    assert "calls" in raw
+    await a.calls.hangup()
+    await wait_for(lambda: b.calls.current.state == "ended")
+    await wait_for(lambda: not any((firebase["db"].get("calls") or {}).get(call.id, {}).values()))
+    assert any(m.kind == "call" for m in a.repo.messages(cid))
