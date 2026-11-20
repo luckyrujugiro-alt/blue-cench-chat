@@ -190,6 +190,10 @@ class ConnectionManager:
         self.node.bus.emit("session", contact.id, True)
         repo.log("connection", f"Secure session with {contact.name} over {self.node.transport_label(session.stream.kind)}")
         if contact.status == "accepted":
+            try:  # tells a peer that is still waiting (we accepted while they were away)
+                await session.send_json({"t": "conn_accept", **self.node.profile_card()})
+            except Exception:
+                pass
             await self.node.on_contact_online(contact.id)
             asyncio.ensure_future(self.node.mesh.on_session(contact))
         asyncio.ensure_future(self.node.social.on_session(contact.id))

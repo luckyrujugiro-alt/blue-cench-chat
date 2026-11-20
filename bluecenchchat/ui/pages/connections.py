@@ -71,8 +71,7 @@ class ContactRow(QFrame):
                                                        lambda _: win.toast(f"You are now connected with {contact.name}", "success")))
             rej.clicked.connect(lambda: win.bridge.run(node.connections.reject(contact.id)))
             if not online:
-                acc.setEnabled(False)
-                acc.setToolTip("They went offline - the request can be accepted when they reconnect")
+                acc.setToolTip("They are away - they will be told as soon as you connect again")
             lay.addWidget(acc)
             lay.addWidget(rej)
         elif contact.status == "pending_out":
