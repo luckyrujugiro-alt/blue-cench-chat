@@ -20,7 +20,6 @@ identity key would stay the root of trust.
 """
 from __future__ import annotations
 
-import io
 import re
 import time
 

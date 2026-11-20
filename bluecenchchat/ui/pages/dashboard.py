@@ -5,16 +5,15 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QVBoxLayout, QWidget
 
 from ... import config
-from .. import icons, theme
+from .. import theme
 from ..components.transfer_row import TransferRow
 from ..components.widgets import (
     Avatar,
     BarChart,
     Card,
-    EmptyState,
     Page,
     Pill,
     RingGauge,

@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 
 from pydantic import ValidationError
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QGuiApplication, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
 from .. import config
 from ..backend import secure_store
 from ..backend.authentication import AuthError, AuthService, RegistrationData, password_strength
-from ..core import crypto
 from . import icons, theme
 from .components.widgets import (
     Avatar,
@@ -30,7 +29,6 @@ from .components.widgets import (
     StrengthMeter,
     button,
     fade_in,
-    icon_label,
     label,
 )
 

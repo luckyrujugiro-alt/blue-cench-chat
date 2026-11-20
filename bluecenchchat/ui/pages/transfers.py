@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QHeaderView,
     QVBoxLayout,
-    QWidget,
 )
 
 from ... import config

@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 
 from . import crypto
-from .session import FT_CHUNK, FT_JSON, FT_MEDIA, PeerSession, ProtocolError
+from .session import FT_CHUNK, FT_MEDIA, PeerSession, ProtocolError
 from .transports.base import Stream, TransportError
 
 log = logging.getLogger("bluecenchchat.connections")

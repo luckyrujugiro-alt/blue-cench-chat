@@ -1,5 +1,4 @@
 """Extended range: Alice -> (Bob relays) -> Carol, when Alice and Carol are out of range of each other."""
-import asyncio
 import json
 import random
 

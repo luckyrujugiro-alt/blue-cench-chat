@@ -4,7 +4,7 @@ import pytest
 
 from bluecenchchat.core import crypto
 from bluecenchchat.core.session import PeerSession, ProtocolError
-from bluecenchchat.core.transports.base import AsyncioStream, TransportError
+from bluecenchchat.core.transports.base import AsyncioStream
 
 
 def test_user_id_bound_to_key():

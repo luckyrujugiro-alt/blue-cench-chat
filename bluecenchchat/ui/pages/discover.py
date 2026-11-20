@@ -3,7 +3,6 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QVBoxLayout, QWidget
 
-from ...core import crypto
 from .. import actions, theme
 from ..components.widgets import (
     Avatar,

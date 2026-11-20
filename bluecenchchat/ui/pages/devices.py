@@ -3,7 +3,6 @@ from __future__ import annotations
 import platform
 import sys
 
-from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QVBoxLayout, QWidget
 
 from ... import config

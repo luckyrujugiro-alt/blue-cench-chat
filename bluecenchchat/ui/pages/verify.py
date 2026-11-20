@@ -20,7 +20,6 @@ from ..components.widgets import (
     button,
     clear_layout,
     human_time,
-    icon_label,
     label,
 )
 from ..dialogs.common import confirm

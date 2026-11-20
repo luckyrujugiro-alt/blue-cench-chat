@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QSize, Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QDialog,
@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QMenu,
     QPlainTextEdit,
     QScrollArea,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )

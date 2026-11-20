@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import theme
 from .badges import ring_pixmap
 from .widgets import Avatar, Card, button, clear_layout, human_time, label
 

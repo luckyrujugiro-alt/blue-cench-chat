@@ -7,11 +7,11 @@ import time
 
 from PySide6.QtCore import QBuffer, QIODevice, Qt, QTimer
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QVBoxLayout
 
 from ..core import audio_dsp as dsp
 from ..core.calls import fmt_duration
-from . import icons, theme
+from . import icons
 from .components.widgets import Avatar, label, tool_button
 
 log = logging.getLogger("bluecenchchat.ui.calls")

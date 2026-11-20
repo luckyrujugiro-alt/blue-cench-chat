@@ -1,4 +1,3 @@
-import time
 
 import pytest
 from pydantic import ValidationError
@@ -7,7 +6,6 @@ from bluecenchchat import config
 from bluecenchchat.backend.authentication import AuthError, AuthService, RegistrationData
 from bluecenchchat.backend.database import Database
 from bluecenchchat.backend.user_service import UserRepository
-from bluecenchchat.core import crypto
 
 from .conftest import make_account
 

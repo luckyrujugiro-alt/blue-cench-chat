@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, Qt, QTimer
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QTabBar, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QTabBar, QVBoxLayout
 
 from .. import actions, theme
 from ..components.widgets import (

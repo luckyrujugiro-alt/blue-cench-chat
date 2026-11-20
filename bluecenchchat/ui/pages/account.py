@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import ValidationError
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
@@ -756,7 +755,6 @@ class HelpPage(Page):
         data.clicked.connect(lambda: system.open_path(config.data_dir()))
         r.addWidget(logs)
         r.addWidget(data)
-        from ...core import updates
         upd = button("Check for updates", "download", "primary", "Download and install the newest version (Ctrl+U)")
         upd.clicked.connect(win.show_update)
         r.addWidget(upd)
